@@ -11,7 +11,6 @@
       rel="stylesheet"
     />
     <style>
-<<<<<<< HEAD
       .variance-input-group {
         display: flex;
         flex-direction: column;
@@ -102,46 +101,6 @@
       .rate-input.bg-orange-100 {
         border: 1px solid #ff9900;
       }
-=======
-
-      .scroll-wrapper {
-    position: relative;
-    width: 100%;
-  }
-
-  .top-scrollbar {
-    overflow-x: auto;
-    overflow-y: hidden;
-    height: 16px;
-    position: sticky;
-    top: 0;
-    z-index: 50;
-    background: white;
-  }
-
-  .top-scrollbar-inner {
-    height: 1px;
-  }
-
-
-
-    .bg-blue-100 {
-    background-color: #cce5ff; /* Light blue */
-  }
-
-  .bg-orange-100 {
-    background-color: #ffe5b4; /* Light orange */
-  }
-
-  /* Optional: to enhance visibility */
-  .rate-input.bg-blue-100 {
-    border: 1px solid #007bff;
-  }
-
-  .rate-input.bg-orange-100 {
-    border: 1px solid #ff9900;
-  }
->>>>>>> f9bf548662147e3c23daf174ab3f0436c7352a19
       body {
         font-family: "Inter", sans-serif;
       }
@@ -186,10 +145,6 @@
         border: 1px solid #d1d5db;
         border-radius: 4px;
         text-align: right;
-<<<<<<< HEAD
-=======
-      
->>>>>>> f9bf548662147e3c23daf174ab3f0436c7352a19
       }
       .rate-input:disabled {
         background-color: #f3f4f6;
@@ -222,7 +177,6 @@
   </head>
   <body class="bg-gray-50 text-gray-800">
     <div class="container mx-auto p-4 md:p-8">
-<<<<<<< HEAD
       <header class="text-center mb-10">
         <h1
           class="text-4xl font-extrabold text-gray-900 tracking-tight sm:text-5xl"
@@ -231,20 +185,11 @@
         </h1>
         <p class="mt-4 text-lg text-gray-600">
           Upload your estimate and bidder Excel sheets to generate a detailed
-=======
-      <header class="text-center mb-8">
-        <h1 class="text-3xl md:text-4xl font-bold text-gray-900">
-          Bid Comparison Application
-        </h1>
-        <p class="text-gray-600 mt-2">
-          Upload an estimate and up to 7 bidder Excel files to generate a
->>>>>>> f9bf548662147e3c23daf174ab3f0436c7352a19
           comparative statement.
         </p>
       </header>
 
       <!-- File Upload Section -->
-<<<<<<< HEAD
       <div
         id="upload-section"
         class="bg-white p-8 rounded-2xl shadow-lg mb-10 border border-gray-200"
@@ -360,74 +305,6 @@
     </div>
   </div>
 </div>
-=======
-      <div id="upload-section" class="bg-white p-6 rounded-lg shadow-md mb-8">
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div>
-            <label
-              for="estimate-file"
-              class="block text-sm font-medium text-gray-700 mb-1"
-              >Estimate File (Baseline)</label
-            >
-            <input
-              type="file"
-              id="estimate-file"
-              class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
-              accept=".xlsx"
-            />
-          </div>
-          <div>
-            <label
-              for="bidder-files"
-              class="block text-sm font-medium text-gray-700 mb-1"
-              >Bidder Files (Max 7)</label
-            >
-            <input
-              type="file"
-              id="bidder-files"
-              class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-violet-50 file:text-violet-700 hover:file:bg-violet-100"
-              accept=".xlsx"
-              multiple
-            />
-          </div>
-        </div>
-        <div class="mt-6 flex justify-center">
-          <button
-            id="process-button"
-            class="bg-indigo-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-150 ease-in-out"
-          >
-            Generate Comparison
-          </button>
-          <button
-            id="download-button"
-            class="bg-green-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition duration-150 ease-in-out ml-4 hidden"
-          >
-            Download as Excel
-          </button>
-        </div>
-        <div id="loader" class="text-center mt-4 hidden">
-          <div role="status">
-            <svg
-              aria-hidden="true"
-              class="inline w-8 h-8 mr-2 text-gray-200 animate-spin dark:text-gray-600 fill-indigo-600"
-              viewBox="0 0 100 101"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path
-                d="M100 50.5908C100 78.2051 77.6142 100.591 50 100.591C22.3858 100.591 0 78.2051 0 50.5908C0 22.9766 22.3858 0.59082 50 0.59082C77.6142 0.59082 100 22.9766 100 50.5908ZM9.08144 50.5908C9.08144 73.1895 27.4013 91.5094 50 91.5094C72.5987 91.5094 90.9186 73.1895 90.9186 50.5908C90.9186 27.9921 72.5987 9.67226 50 9.67226C27.4013 9.67226 9.08144 27.9921 9.08144 50.5908Z"
-                fill="currentColor"
-              />
-              <path
-                d="M93.9676 39.0409C96.393 38.4038 97.8624 35.9116 97.0079 33.5539C95.2932 28.8227 92.871 24.3692 89.8167 20.348C85.8452 15.1192 80.8826 10.7238 75.2124 7.41289C69.5422 4.10194 63.2754 1.94025 56.7698 1.05124C51.7666 0.367541 46.6976 0.446843 41.7345 1.27873C39.2613 1.69328 37.813 4.19778 38.4501 6.62326C39.0873 9.04874 41.5694 10.4717 44.0505 10.1071C47.8511 9.54855 51.7191 9.52689 55.5402 10.0492C60.8642 10.7766 65.9928 12.5457 70.6331 15.2552C75.2735 17.9648 79.3347 21.5619 82.5849 25.841C84.9175 28.9121 86.7997 32.2913 88.1811 35.8758C89.083 38.2158 91.5421 39.6781 93.9676 39.0409Z"
-                fill="currentFill"
-              />
-            </svg>
-            <span class="sr-only">Loading...</span>
-          </div>
-          <p>Processing files, please wait...</p>
-        </div>
->>>>>>> f9bf548662147e3c23daf174ab3f0436c7352a19
       </div>
 
       <!-- Comparison Output Section -->
@@ -439,7 +316,6 @@
             aria-label="Tabs"
           ></nav>
         </div>
-<<<<<<< HEAD
         <div class="variance-legend">
           <div class="flex items-center gap-2">
             <div class="variance-box variance-low"></div>
@@ -450,30 +326,15 @@
             <span id="upper-variance-label">1.2</span>
           </div>
         </div>
-=======
-        <div class="print-legend flex justify-end gap-6 text-sm font-semibold my-2 pr-4">
-  <div class="flex items-center gap-2">
-    <div class="w-6 h-6 bg-blue-100 border border-blue-500"></div> <span>0.8</span>
-  </div>
-  <div class="flex items-center gap-2">
-    <div class="w-6 h-6 bg-orange-100 border border-orange-500"></div> <span>1.2</span>
-  </div>
-</div>
->>>>>>> f9bf548662147e3c23daf174ab3f0436c7352a19
 
         <div
           id="tables-container"
           class="mt-4 bg-white p-4 rounded-lg shadow-md"
         ></div>
-<<<<<<< HEAD
-=======
-
->>>>>>> f9bf548662147e3c23daf174ab3f0436c7352a19
       </div>
     </div>
 
     <script>
-<<<<<<< HEAD
       function getVarianceThresholds() {
         const lowerInput =
           parseFloat(document.getElementById("lower-variance").value) || 0.8;
@@ -482,13 +343,6 @@
         return { lower: lowerInput, upper: upperInput };
       }
 
-=======
-
-      const VARIANCE_LOWER = 0.8;
-      const VARIANCE_UPPER = 1.2;
-
-      
->>>>>>> f9bf548662147e3c23daf174ab3f0436c7352a19
       // --- CONFIGURATION ---
       const SHEET_NAMES = [
         "Summary",
@@ -645,12 +499,9 @@
             Array.from(bidderFiles).map((file) => parseExcelFile(file, false))
           );
           consolidateAllData(estimateData, biddersData);
-<<<<<<< HEAD
           const { lower, upper } = getVarianceThresholds();
           document.getElementById("lower-variance-label").textContent = lower;
           document.getElementById("upper-variance-label").textContent = upper;
-=======
->>>>>>> f9bf548662147e3c23daf174ab3f0436c7352a19
           renderUI();
           outputSection.classList.remove("hidden");
           downloadButton.classList.remove("hidden");
@@ -743,7 +594,6 @@
                 const bidderSheet = bidder[sheetName];
                 let bidderRate = 0;
                 if (bidderSheet) {
-<<<<<<< HEAD
                   const estimateSlNo = (slNo || "")
                     .replace(/\s+/g, "")
                     .toLowerCase();
@@ -754,16 +604,6 @@
                       .toLowerCase();
                     return bidderSl === estimateSlNo;
                   });
-=======
-                  const estimateSlNo = (slNo || '').replace(/\s+/g, '').toLowerCase();
-
-const bidderRow = bidderSheet.find(bRow => {
-    const bidderSl = String(bRow[bidderConfig.slNoCol] || '').replace(/\s+/g, '').toLowerCase();
-    return bidderSl === estimateSlNo;
-});
-
-
->>>>>>> f9bf548662147e3c23daf174ab3f0436c7352a19
 
                   if (bidderRow)
                     bidderRate =
@@ -850,11 +690,7 @@ const bidderRow = bidderSheet.find(bRow => {
                       .map((name) => `<th>${name} Amount</th>`)
                       .join("")}<th>Least Amount</th></tr>`;
           tbody.innerHTML = data
-<<<<<<< HEAD
 
-=======
-          
->>>>>>> f9bf548662147e3c23daf174ab3f0436c7352a19
             .map(
               (row) => `
                     <tr class="${row.isTotal ? "grand-total-row" : ""}">
@@ -912,7 +748,6 @@ const bidderRow = bidderSheet.find(bRow => {
                           item.estimate.amount
                         )}</td>
                       ${item.bidders
-<<<<<<< HEAD
                         .map((bidder, i) => {
                           const estRate = item.estimate.rate || 0;
                           let rateClass = "";
@@ -948,35 +783,6 @@ const bidderRow = bidderSheet.find(bRow => {
 <td class="least-amount-cell">${
                 isEditable ? formatCurrency(leastBid.amount) : ""
               }</td></tr>`;
-=======
-  .map((bidder, i) => {
-    const estRate = item.estimate.rate || 0;
-    let rateClass = "";
-    const isLeastRate = leastBid.rate > 0 && leastBid.rate === bidder.rate;
-
-    // Determine color class based on % difference from estimate
-    if (estRate > 0 && bidder.rate > 0) {
-      const ratio = bidder.rate / estRate;
-      if (ratio < 0.8) rateClass = "bg-blue-100";      // Too low
-      else if (ratio > 1.2) rateClass = "bg-orange-100"; // Too high
-    }
-
-    return `<td class="${isLeastRate ? "least-rate-cell" : ""}">
-      <input type="number" class="rate-input ${rateClass}" value="${bidder.rate}" data-row-index="${index}" data-bidder-index="${i}" onchange="handleRateChange(this, '${sheetName}')" ${!isEditable ? "disabled" : ""}>
-    </td>
-    <td class="amount-cell">${formatCurrency(bidder.amount)}</td>`;
-  })
-  .join("")
-  }
-
-<td class="least-rate-cell">${
-  isEditable ? formatCurrency(leastBid.rate) : ""
-}</td>
-<td class="least-amount-cell">${
-  isEditable ? formatCurrency(leastBid.amount) : ""
-}</td></tr>`;
-
->>>>>>> f9bf548662147e3c23daf174ab3f0436c7352a19
             })
             .join("");
         }
@@ -1085,7 +891,6 @@ const bidderRow = bidderSheet.find(bRow => {
           sheetData.forEach((item) => {
             const slNoStr = String(item.slNo);
             if (item.isCategory) {
-<<<<<<< HEAD
               const totals = categoryTotalsMap[slNoStr];
               if (totals) {
                 item.estimate.amount = totals.estimate;
@@ -1094,17 +899,6 @@ const bidderRow = bidderSheet.find(bRow => {
                 });
               }
             }
-=======
-  const totals = categoryTotalsMap[slNoStr];
-  if (totals) {
-    item.estimate.amount = totals.estimate;
-    item.bidders.forEach((b, idx) => {
-      b.amount = totals.bidders[idx];
-    });
-  }
-}
-
->>>>>>> f9bf548662147e3c23daf174ab3f0436c7352a19
           });
 
           // Pass 5: Calculate Grand Total from the definitive map.
@@ -1187,20 +981,11 @@ const bidderRow = bidderSheet.find(bRow => {
       }
 
       function formatCurrency(num) {
-<<<<<<< HEAD
         if (typeof num !== "number" || !isFinite(num)) return "0";
         return new Intl.NumberFormat("en-IN", {
           maximumFractionDigits: 0,
         }).format(num);
       }
-=======
-  if (typeof num !== "number" || !isFinite(num)) return "0";
-  return new Intl.NumberFormat("en-IN", {
-    maximumFractionDigits: 0,
-  }).format(num);
-}
-
->>>>>>> f9bf548662147e3c23daf174ab3f0436c7352a19
 
       function handleDownload() {
         const wb = XLSX.utils.book_new();
