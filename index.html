@@ -355,7 +355,7 @@
             description,
             unit: row[estimateConfig.unitCol] || "",
             qty: parseQty(row[estimateConfig.qtyCol]),
-            estimate: { rate: parseFloat(row[estimateConfig.rateCol]) || 0, amount: 0 },
+            estimate: { rate: parseNumber(row[estimateConfig.rateCol]), amount: 0 },
             bidders: [],
             isSubtotal: description.toLowerCase().includes("sub-total"),
             isGrandTotal:
@@ -364,17 +364,24 @@
             isCategory: isTopCategory
           };
 
+           function parseNumber(value) {
+      if (value === null || typeof value === 'undefined') return 0;
+      const num = parseFloat(String(value).replace(/,/g, ''));
+      return isNaN(num) ? 0 : num;
+    }
+
           // match bidder row by normalized Sr. No.
           const estimateKey = normalizeSrNo(slNo);
           biddersData.forEach((bidder, index) => {
             const bidderSheet = bidder[sheetName];
             let bidderRate = 0;
             if (bidderSheet) {
+
               const match = bidderSheet.find((bRow) => {
                 const bidderKey = normalizeSrNo(bRow[bidderConfig.slNoCol]);
                 return bidderKey && bidderKey === estimateKey;
               });
-              if (match) bidderRate = parseFloat(match[bidderConfig.rateCol]) || 0;
+              if (match) bidderRate = parseNumber(match[bidderConfig.rateCol]) || 0;
             }
             item.bidders.push({ name: bidderNames[index], rate: bidderRate, amount: 0 });
           });
@@ -771,12 +778,18 @@
     return { lower, upper };
   }
 
-  function parseQty(value) {
-    if (typeof value === "string" && value.toUpperCase() === "QRO") return 0;
-    const num = parseFloat(value);
-    // round to 3 decimals to kill 0.019999... tails
-    return isNaN(num) ? 0 : Math.round((num + Number.EPSILON) * 1e3) / 1e3;
-  }
+   function parseQty(value) {
+  // Check if value is a string and handle known "empty" cases like "QRO"
+  if (typeof value === "string" && value.toUpperCase() === "QRO") return 0;
+
+  // Try parsing the value as a number, cleaning out commas or other non-numeric characters
+  const parsedValue = parseFloat(String(value).replace(/[^0-9.-]+/g, ""));
+  
+  // If the value is NaN or undefined, return 0
+  return isNaN(parsedValue) ? 0 : parsedValue;
+}
+
+    
 
   function formatCurrency(num) {
     if (typeof num !== "number" || !isFinite(num)) return "0";
