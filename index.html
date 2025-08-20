@@ -98,38 +98,37 @@
 
 
     /* ✅ make highlighted inputs readable */
-.rate-input.bg-blue-100,
-.rate-input.bg-orange-100 {
-  color: #111827 !important;     /* dark text */
-  caret-color: #111827 !important;
-  font-weight: 600;
-}
+    .rate-input.bg-blue-100,
+    .rate-input.bg-orange-100 {
+      color: #111827 !important;     /* dark text */
+      caret-color: #111827 !important;
+      font-weight: 600;
+    }
 
-/* consistent backgrounds for the two variance states */
-.rate-input.bg-blue-100 {
-  background-color: #DBEAFE !important; /* Tailwind blue-100 */
-  border-color: #3B82F6 !important;      /* blue-500 */
-}
-.rate-input.bg-orange-100 {
-  background-color: #FFEDD5 !important; /* Tailwind orange-100 */
-  border-color: #F59E0B !important;     /* amber-500 / orange-500 */
-}
+    /* consistent backgrounds for the two variance states */
+    .rate-input.bg-blue-100 {
+      background-color: #DBEAFE !important; /* Tailwind blue-100 */
+      border-color: #3B82F6 !important;      /* blue-500 */
+    }
+    .rate-input.bg-orange-100 {
+      background-color: #FFEDD5 !important; /* Tailwind orange-100 */
+      border-color: #F59E0B !important;     /* amber-500 / orange-500 */
+    }
 
-/* readable placeholder when inputs are empty */
-.rate-input.bg-blue-100::placeholder,
-.rate-input.bg-orange-100::placeholder {
-  color: #6B7280; /* gray-500 */
-  opacity: 1;
-}
+    /* readable placeholder when inputs are empty */
+    .rate-input.bg-blue-100::placeholder,
+    .rate-input.bg-orange-100::placeholder {
+      color: #6B7280; /* gray-500 */
+      opacity: 1;
+    }
 
-/* if you ever disable highlighted inputs, keep them readable too */
-.rate-input.bg-blue-100:disabled,
-.rate-input.bg-orange-100:disabled {
-  color: #111827 !important;
-  background-color: #E5E7EB !important;  /* gray-200 */
-  border-color: #9CA3AF !important;      /* gray-400 */
-}
-
+    /* if you ever disable highlighted inputs, keep them readable too */
+    .rate-input.bg-blue-100:disabled,
+    .rate-input.bg-orange-100:disabled {
+      color: #111827 !important;
+      background-color: #E5E7EB !important;  /* gray-200 */
+      border-color: #9CA3AF !important;      /* gray-400 */
+    }
   </style>
 </head>
 
@@ -140,7 +139,7 @@
       <p class="mt-4 text-lg text-gray-300">Upload your estimate and bidder Excel sheets to generate a detailed comparative statement.</p>
     </header>
 
-    <!-- Upload -->
+    <!-- Upload Section -->
     <div id="upload-section" class="bg-gray-800 p-8 rounded-2xl shadow-lg mb-10 border border-gray-700">
       <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
         <div class="space-y-2">
@@ -155,7 +154,7 @@
         </div>
       </div>
 
-      <!-- Variance -->
+      <!-- Variance Controls -->
       <div class="mt-8 grid grid-cols-1 md:grid-cols-2 gap-6">
         <div class="variance-input-group">
           <label for="lower-variance" class="variance-input-label">📉 Lower Variance Factor</label>
@@ -169,7 +168,7 @@
         </div>
       </div>
 
-      <!-- Actions -->
+      <!-- Action Buttons -->
       <div class="mt-10 flex flex-wrap justify-center gap-6">
         <button id="process-button"
           class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-6 rounded-lg shadow-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
@@ -184,7 +183,7 @@
       <!-- Loader -->
       <div id="loader" class="text-center mt-6 hidden">
         <div role="status" class="flex flex-col items-center gap-2">
-          <svg class="w-8 h-8 text-indigo-400 animate-spin" viewBox="0 0 100 101" fill="none">
+          <svg class="w-8 h-8 text-indigo-400 animate-spin" viewBox="0 0 100 101" fill="none" xmlns="http://www.w3.org/2000/svg">
             <circle cx="50" cy="50" r="45" stroke="currentColor" stroke-width="10" opacity=".2"/>
             <path d="M95 50a45 45 0 10-45 45" fill="currentColor"/>
           </svg>
@@ -193,7 +192,7 @@
       </div>
     </div>
 
-    <!-- Output -->
+    <!-- Output Section -->
     <div id="output-section" class="hidden">
       <div class="border-b border-gray-700">
         <nav id="tabs-container" class="-mb-px flex space-x-4 overflow-x-auto" aria-label="Tabs"></nav>
@@ -214,938 +213,882 @@
     </div>
   </div>
 
-  <!-- ====== JS (render + parsing + layout fixes) ====== -->
-  <script>
-    // ---------- CONFIG ----------
-    const SHEET_NAMES = [
-      "Summary",
-      "BOQ-Main Bldg",
-      "BOQ-Other Buildings",
-      "BOQ-Admin&Other Buildings",
-      "BOQ-I Roads& Drains",
-      "BOQ-Compound Wall",
-      "BOQ-UG Sump",
-    ];
-    const DATA_CONFIG = {
-      "BOQ-Main Bldg": { startRow: 5, slNoCol: 0, descCol: 1, unitCol: 2, qtyCol: 3, rateCol: 4, amountCol: 5 },
-      "BOQ-Admin&Other Buildings": { startRow: 5, slNoCol: 0, descCol: 1, unitCol: 2, qtyCol: 3, rateCol: 4, amountCol: 5 },
-      "BOQ-Other Buildings": { startRow: 5, slNoCol: 0, descCol: 1, unitCol: 2, qtyCol: 3, rateCol: 4, amountCol: 5 },
-      "BOQ-I Roads& Drains": { startRow: 5, slNoCol: 0, descCol: 1, unitCol: 2, qtyCol: 3, rateCol: 4, amountCol: 5 },
-      "BOQ-Compound Wall": { startRow: 3, slNoCol: 0, descCol: 1, unitCol: 2, qtyCol: 3, rateCol: 4, amountCol: 5 },
-      "BOQ-UG Sump": { startRow: 5, slNoCol: 0, descCol: 1, unitCol: 2, qtyCol: 3, rateCol: 4, amountCol: 5 },
-    };
-    const ESTIMATE_CONFIG = {
-      "BOQ-Main Bldg": { startRow: 5, slNoCol: 0, descCol: 1, unitCol: 2, qtyCol: 3, rateCol: 4, amountCol: 5 },
-      "BOQ-Admin&Other Buildings": { startRow: 5, slNoCol: 0, descCol: 1, unitCol: 2, qtyCol: 3, rateCol: 4, amountCol: 5 },
-      "BOQ-I Roads& Drains": { startRow: 5, slNoCol: 0, descCol: 1, unitCol: 2, qtyCol: 3, rateCol: 4, amountCol: 5 },
-      "BOQ-Compound Wall": { startRow: 4, slNoCol: 0, descCol: 1, unitCol: 2, qtyCol: 3, rateCol: 4, amountCol: 5 },
-      "BOQ-UG Sump": { startRow: 5, slNoCol: 0, descCol: 1, unitCol: 2, qtyCol: 3, rateCol: 4, amountCol: 5 },
-    };
-
-    let consolidatedData = {};
-    let bidderNames = [];
-
-    const processButton = document.getElementById("process-button");
-    const downloadButton = document.getElementById("download-button");
-    const estimateFileInput = document.getElementById("estimate-file");
-    const bidderFilesInput = document.getElementById("bidder-files");
-    const outputSection = document.getElementById("output-section");
-    const loader = document.getElementById("loader");
-
-    // Hide download if no exporter attached
-    window.addEventListener("DOMContentLoaded", () => {
-      if (typeof window.handleDownloadExcelJS !== "function") {
-        downloadButton.classList.add("hidden");
-      }
-    });
-
-    // Events
-    processButton.addEventListener("click", handleProcessFiles);
-    downloadButton.addEventListener("click", () => {
-      if (typeof window.handleDownloadExcelJS === "function") {
-        window.handleDownloadExcelJS();
-      }
-    });
-
-    function getVarianceThresholds() {
-      const lower = parseFloat(document.getElementById("lower-variance").value) || 0.8;
-      const upper = parseFloat(document.getElementById("upper-variance").value) || 1.2;
-      return { lower, upper };
-    }
-
-    async function handleProcessFiles() {
-      const estimateFile = estimateFileInput.files[0];
-      const bidderFiles = bidderFilesInput.files;
-      if (!estimateFile || bidderFiles.length === 0) {
-        alert("Please select an estimate file and at least one bidder file.");
-        return;
-      }
-      if (bidderFiles.length > 7) {
-        alert("You can select a maximum of 7 bidder files.");
-        return;
-      }
-      loader.classList.remove("hidden");
-      outputSection.classList.add("hidden");
-
-      try {
-        bidderNames = Array.from(bidderFiles).map((f) => f.name.split(".")[0].replace("DGG_BIDDER_", "BIDDER "));
-        const estimateData = await parseExcelFile(estimateFile, true);
-        const biddersData = await Promise.all(Array.from(bidderFiles).map((file) => parseExcelFile(file, false)));
-        consolidateAllData(estimateData, biddersData);
-
-        const { lower, upper } = getVarianceThresholds();
-        document.getElementById("lower-variance-label").textContent = lower;
-        document.getElementById("upper-variance-label").textContent = upper;
-
-        renderUI();
-        outputSection.classList.remove("hidden");
-        if (typeof window.handleDownloadExcelJS === "function") {
-          downloadButton.classList.remove("hidden");
-        }
-      } catch (e) {
-        console.error(e);
-        alert("Error while processing files. See console for details.");
-      } finally {
-        loader.classList.add("hidden");
-      }
-    }
-
-    function parseExcelFile(file, isEstimate) {
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          try {
-            const workbook = XLSX.read(e.target.result, { type: "binary" });
-            const parsedSheets = {};
-            workbook.SheetNames.forEach((sheetName) => {
-              const relevantSheetName = getRelevantSheetName(sheetName);
-              if (relevantSheetName) {
-                const config = isEstimate ? ESTIMATE_CONFIG[relevantSheetName] : DATA_CONFIG[relevantSheetName];
-                if (config) {
-                  const worksheet = workbook.Sheets[sheetName];
-                  const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, range: config.startRow - 1 });
-                  parsedSheets[relevantSheetName] = jsonData;
-                }
-              }
-            });
-            resolve(parsedSheets);
-          } catch (err) { reject(err); }
-        };
-        reader.onerror = reject;
-        reader.readAsBinaryString(file);
-      });
-    }
-
-    function getRelevantSheetName(name) {
-      if (name.includes("BOQ-Other Buildings") || name.includes("BOQ-Admin&Other Buildings"))
-        return "BOQ-Admin&Other Buildings";
-      return SHEET_NAMES.find((n) => name.includes(n));
-    }
-
-    function consolidateAllData(estimateData, biddersData) {
-      consolidatedData = {};
-      for (const sheetName in estimateData) {
-        if (sheetName === "Summary") continue;
-        const estimateConfig = ESTIMATE_CONFIG[sheetName];
-        const bidderConfig = DATA_CONFIG[sheetName];
-
-        consolidatedData[sheetName] = estimateData[sheetName]
-          .map((row) => {
-            const slNo = row[estimateConfig.slNoCol] ? String(row[estimateConfig.slNoCol]).trim() : "";
-            const description = row[estimateConfig.descCol] || "";
-            if (!slNo && !description) return null;
-
-            const item = {
-              slNo,
-              description,
-              unit: row[estimateConfig.unitCol] || "",
-              qty: parseQty(row[estimateConfig.qtyCol]),
-              estimate: { rate: parseFloat(row[estimateConfig.rateCol]) || 0, amount: 0 },
-              bidders: [],
-              isSubtotal: description.toLowerCase().includes("sub-total"),
-              isGrandTotal: description.toUpperCase().includes("GRAND TOTAL") || description.toUpperCase().includes("TOTAL AMOUNT"),
-              isCategory: !String(slNo).includes(".") && !isNaN(parseFloat(slNo)),
-            };
-
-            biddersData.forEach((bidder, index) => {
-              const bidderSheet = bidder[sheetName];
-              let bidderRate = 0;
-              if (bidderSheet) {
-                const estimateSlNo = (slNo || "").replace(/\s+/g, "").toLowerCase();
-                const bidderRow = bidderSheet.find((bRow) => {
-                  const bidderSl = String(bRow[bidderConfig.slNoCol] || "").replace(/\s+/g, "").toLowerCase();
-                  return bidderSl === estimateSlNo;
-                });
-                if (bidderRow) bidderRate = parseFloat(bidderRow[bidderConfig.rateCol]) || 0;
-              }
-              item.bidders.push({ name: bidderNames[index], rate: bidderRate, amount: 0 });
-            });
-            return item;
-          })
-          .filter(Boolean);
-      }
-      calculateAllTotals();
-    }
-
-    function parseQty(value) {
-      if (typeof value === "string" && value.toUpperCase() === "QRO") return 0;
-      const num = parseFloat(value); return isNaN(num) ? 0 : num;
-    }
-
-    // ---------- Calculations ----------
-    function calculateAllTotals() {
-      let summarySheetData = {};
-      for (const sheetName of Object.keys(consolidatedData)) {
-        if (sheetName === "Summary") continue;
-        const sheetData = consolidatedData[sheetName];
-
-        // Pass 1: row amounts
-        sheetData.forEach((item) => {
-          if (!item.isSubtotal && !item.isGrandTotal && !item.isCategory) {
-            item.bidders.forEach((bidder) => (bidder.amount = item.qty * bidder.rate));
-            item.estimate.amount = item.qty * item.estimate.rate;
-          }
-        });
-        // Pass 2: subtotals
-        let currentSubTotal = { estimate: 0, bidders: Array(bidderNames.length).fill(0) };
-        sheetData.forEach((item) => {
-          if (item.isCategory) {
-            currentSubTotal = { estimate: 0, bidders: Array(bidderNames.length).fill(0) };
-          } else if (item.isSubtotal) {
-            item.estimate.amount = currentSubTotal.estimate;
-            item.bidders.forEach((b, i) => (b.amount = currentSubTotal.bidders[i]));
-            currentSubTotal = { estimate: 0, bidders: Array(bidderNames.length).fill(0) };
-          } else if (!item.isGrandTotal) {
-            currentSubTotal.estimate += item.estimate.amount;
-            item.bidders.forEach((b, i) => (currentSubTotal.bidders[i] += b.amount));
-          }
-        });
-        // Pass 3: definitive category totals
-        const categoryTotalsMap = {};
-        sheetData.forEach((item) => {
-          if (item.slNo && String(item.slNo).includes(".")) {
-            const key = String(item.slNo).split(".")[0];
-            if (!categoryTotalsMap[key]) categoryTotalsMap[key] = { estimate: 0, bidders: Array(bidderNames.length).fill(0) };
-            categoryTotalsMap[key].estimate += item.estimate.amount;
-            item.bidders.forEach((b, i) => (categoryTotalsMap[key].bidders[i] += b.amount));
-          }
-        });
-        // Pass 4: write category rows
-        sheetData.forEach((item) => {
-          const key = String(item.slNo);
-          if (item.isCategory && categoryTotalsMap[key]) {
-            item.estimate.amount = categoryTotalsMap[key].estimate;
-            item.bidders.forEach((b, i) => (b.amount = categoryTotalsMap[key].bidders[i]));
-          }
-        });
-        // Pass 5: grand total
-        const grand = { estimate: 0, bidders: Array(bidderNames.length).fill(0) };
-        Object.values(categoryTotalsMap).forEach((sub) => {
-          grand.estimate += sub.estimate;
-          grand.bidders.forEach((_, i) => (grand.bidders[i] += sub.bidders[i]));
-        });
-        const grandRow = sheetData.find((i) => i.isGrandTotal);
-        if (grandRow) {
-          grandRow.estimate.amount = grand.estimate;
-          grandRow.bidders.forEach((b, i) => (b.amount = grand.bidders[i]));
-        }
-        summarySheetData[sheetName] = { estimateAmount: grand.estimate, bidderAmounts: grand.bidders };
-      }
-      buildSummarySheet(summarySheetData);
-    }
-
-    function buildSummarySheet(summaryData) {
-      const addArr = (a, b) => a.map((v, i) => v + (b[i] || 0));
-      const bidderZero = () => Array(bidderNames.length).fill(0);
-      const get = (sheet) => summaryData[sheet] || { estimateAmount: 0, bidderAmounts: bidderZero() };
-
-      const GROUP_A_KEYS = ["BOQ-Main Bldg", "BOQ-Admin&Other Buildings", "BOQ-Other Buildings"];
-      const GROUP_B_KEYS = ["BOQ-I Roads& Drains", "BOQ-Compound Wall", "BOQ-UG Sump"];
-
-      const rows = [];
-      rows.push({ kind: "category", slNo: "A", description: "Building Works" });
-      let totalA = { estimateAmount: 0, bidderAmounts: bidderZero() };
-      GROUP_A_KEYS.forEach((k, idx) => {
-        if (!summaryData[k]) return;
-        const t = get(k);
-        const valid = t.bidderAmounts.filter((x) => x > 0);
-        rows.push({ kind: "item", slNo: String(idx + 1), description: k.replace("BOQ-", ""), estimateAmount: t.estimateAmount, bidderAmounts: t.bidderAmounts, leastAmount: valid.length ? Math.min(...valid) : 0 });
-        totalA.estimateAmount += t.estimateAmount;
-        totalA.bidderAmounts = addArr(totalA.bidderAmounts, t.bidderAmounts);
-      });
-      const vA = totalA.bidderAmounts.filter((x) => x > 0);
-      rows.push({ kind: "subtotal", slNo: "", description: "Total of A (Rs.)", estimateAmount: totalA.estimateAmount, bidderAmounts: totalA.bidderAmounts, leastAmount: vA.length ? Math.min(...vA) : 0 });
-
-      rows.push({ kind: "category", slNo: "B", description: "External Development" });
-      let totalB = { estimateAmount: 0, bidderAmounts: bidderZero() };
-      GROUP_B_KEYS.forEach((k, idx) => {
-        if (!summaryData[k]) return;
-        const t = get(k);
-        const valid = t.bidderAmounts.filter((x) => x > 0);
-        rows.push({ kind: "item", slNo: String(idx + 1), description: k.replace("BOQ-", ""), estimateAmount: t.estimateAmount, bidderAmounts: t.bidderAmounts, leastAmount: valid.length ? Math.min(...valid) : 0 });
-        totalB.estimateAmount += t.estimateAmount;
-        totalB.bidderAmounts = addArr(totalB.bidderAmounts, t.bidderAmounts);
-      });
-      const vB = totalB.bidderAmounts.filter((x) => x > 0);
-      rows.push({ kind: "subtotal", slNo: "", description: "Total of B (Rs.)", estimateAmount: totalB.estimateAmount, bidderAmounts: totalB.bidderAmounts, leastAmount: vB.length ? Math.min(...vB) : 0 });
-
-      const grand = { estimateAmount: totalA.estimateAmount + totalB.estimateAmount, bidderAmounts: addArr(totalA.bidderAmounts, totalB.bidderAmounts) };
-      const vG = grand.bidderAmounts.filter((x) => x > 0);
-      rows.push({ kind: "grand", slNo: "", description: "GRAND TOTAL", estimateAmount: grand.estimateAmount, bidderAmounts: grand.bidderAmounts, leastAmount: vG.length ? Math.min(...vG) : 0, isTotal: true });
-
-      consolidatedData.Summary = rows;
-    }
-
-    // ---------- UI ----------
-    function renderUI() {
-      renderTabs();
-      const firstSheet = SHEET_NAMES.find((name) => consolidatedData[name] || name === "Summary");
-      renderTableForSheet(firstSheet);
-      document.querySelector(".tab-button").classList.add("active");
-    }
-
-    function renderTabs() {
-      const tabs = document.getElementById("tabs-container");
-      tabs.innerHTML = "";
-      const displaySheets = SHEET_NAMES.filter((name) => name === "Summary" || (consolidatedData[name] && consolidatedData[name].length > 0));
-      displaySheets.forEach((sheetName) => {
-        const btn = document.createElement("button");
-        btn.textContent = sheetName.replace("BOQ-", "");
-        btn.className = "tab-button border-b-2 border-transparent py-2 px-4 text-sm font-medium text-gray-300 hover:text-gray-100 hover:border-gray-500";
-        btn.dataset.sheet = sheetName;
-        btn.addEventListener("click", (e) => {
-          document.querySelectorAll(".tab-button").forEach((b) => b.classList.remove("active"));
-          e.target.classList.add("active");
-          renderTableForSheet(sheetName);
-        });
-        tabs.appendChild(btn);
-      });
-    }
-
-    function renderTableForSheet(sheetName) {
-      const tablesContainer = document.getElementById("tables-container");
-      tablesContainer.innerHTML = "";
-
-      const data = sheetName === "Summary" ? consolidatedData.Summary : consolidatedData[sheetName];
-      if (!data) {
-        tablesContainer.innerHTML = `<p class="p-4">No data available for ${sheetName}.</p>`;
-        return;
-      }
-
-      // Wrapper with top scrollbar + viewport
-      const tableContainer = document.createElement("div");
-      tableContainer.className = "table-container";
-      const topBar = document.createElement("div");
-      topBar.className = "top-scrollbar";
-      const topInner = document.createElement("div");
-      topInner.className = "top-scrollbar-inner";
-      topBar.appendChild(topInner);
-
-      const viewport = document.createElement("div");
-      viewport.className = "table-viewport";
-
-      const table = document.createElement("table");
-      table.id = `table-${sheetName.replace(/\s|&/g, "-")}`;
-
-      const thead = document.createElement("thead");
-      const tbody = document.createElement("tbody");
-
-      if (sheetName === "Summary") {
-        // Summary header
-        const headerRow = document.createElement("tr");
-        const cols = ["Sl. No", "Description", "Estimate", ...bidderNames, "Least Amount"];
-        cols.forEach((c, i) => {
-          const th = document.createElement("th");
-          th.textContent = c;
-          if (i === 0) { th.classList.add("sticky-col-1", "col-slno"); }
-          if (i === 1) { th.classList.add("sticky-col-2", "col-desc"); }
-          thead.appendChild(headerRow);
-          headerRow.appendChild(th);
-        });
-
-        // Summary rows
-        data.forEach((row) => {
-          const tr = document.createElement("tr");
-          if (row.kind === "category") tr.className = "category-header";
-          else if (row.kind === "subtotal") tr.className = "subtotal-row";
-          else if (row.kind === "grand") tr.className = "grand-total-row";
-
-          const c1 = document.createElement("td"); c1.textContent = row.slNo || ""; c1.className = "sticky-col-1 col-slno"; tr.appendChild(c1);
-          const c2 = document.createElement("td"); c2.textContent = row.description || ""; c2.className = "sticky-col-2 col-desc"; tr.appendChild(c2);
-
-          const est = document.createElement("td"); est.className = "amount-cell"; est.textContent = formatCurrency(row.estimateAmount || 0); tr.appendChild(est);
-          bidderNames.forEach((_, i) => {
-            const td = document.createElement("td");
-            td.className = "amount-cell";
-            td.textContent = formatCurrency((row.bidderAmounts || [])[i] || 0);
-            tr.appendChild(td);
-          });
-          const least = document.createElement("td");
-          least.className = "least-amount-cell";
-          least.textContent = formatCurrency(row.leastAmount || 0);
-          tr.appendChild(least);
-
-          tbody.appendChild(tr);
-        });
-
-      } else {
-        // BOQ header (compact Rate/Amount stacked per column)
-        const h1 = document.createElement("tr");
-        const h2 = document.createElement("tr");
-        const hTop = [
-          { text: "Sl. No.", span: 2 }, // sticky + width cols
-          { text: "Description of Items", span: 0 },
-          { text: "Unit", span: 0 },
-          { text: "Qty", span: 0 },
-          { text: "Estimate", span: 0 },
-          ...bidderNames.map((n) => ({ text: n, span: 0 })),
-          { text: "Least Bid", span: 0 },
-        ];
-
-        // Build header line 1
-        hTop.forEach((info, idx) => {
-          const th = document.createElement("th");
-          th.textContent = info.text;
-          if (idx === 0) th.classList.add("sticky-col-1", "col-slno");
-          if (idx === 1) th.classList.add("sticky-col-2", "col-desc");
-          h1.appendChild(th);
-        });
-        thead.appendChild(h1);
-
-        // Header line 2 (labels under compact cells)
-        const bottomLabels = ["", "", "", "", "Rate/Amount", ...bidderNames.map(() => "Rate/Amount"), "Rate/Amount"];
-        bottomLabels.forEach((t, idx) => {
-          const th = document.createElement("th");
-          th.textContent = t;
-          if (idx === 0) th.classList.add("sticky-col-1", "col-slno");
-          if (idx === 1) th.classList.add("sticky-col-2", "col-desc");
-          h2.appendChild(th);
-        });
-        thead.appendChild(h2);
-
-        // Rows
-        const { lower, upper } = getVarianceThresholds();
-        data.forEach((item, rowIndex) => {
-          const tr = document.createElement("tr");
-          if (item.isSubtotal) tr.className = "subtotal-row";
-          else if (item.isGrandTotal) tr.className = "grand-total-row";
-          else if (item.isCategory) tr.className = "category-header";
-
-          // Sticky columns
-          const td1 = document.createElement("td"); td1.textContent = item.slNo || ""; td1.className = "sticky-col-1 col-slno"; tr.appendChild(td1);
-          const td2 = document.createElement("td"); td2.textContent = item.description || ""; td2.className = "sticky-col-2 col-desc"; tr.appendChild(td2);
-
-          // Unit / Qty
-          const td3 = document.createElement("td"); td3.textContent = item.unit || ""; tr.appendChild(td3);
-          const td4 = document.createElement("td"); td4.className = "amount-cell"; td4.textContent = item.qty || ""; tr.appendChild(td4);
-
-          // Estimate compact cell
-          const td5 = document.createElement("td");
-          td5.className = "compact-cell";
-          td5.innerHTML = `<span class="label">Rate</span><span class="val">${formatCurrency(item.estimate.rate || 0)}</span>
-                           <span class="label">Amt</span><span class="val">${formatCurrency(item.estimate.amount || 0)}</span>`;
-          tr.appendChild(td5);
-
-          // Bidders compact cells (with input for rate)
-          item.bidders.forEach((b, i) => {
-            const td = document.createElement("td");
-            td.className = "compact-cell";
-
-            // variance color on input
-            let cls = "";
-            const estRate = item.estimate.rate || 0;
-            if (estRate > 0 && b.rate > 0) {
-              const ratio = b.rate / estRate;
-              if (ratio < lower) cls = "bg-blue-100";
-              else if (ratio > upper) cls = "bg-orange-100";
-            }
-            const disabled = (item.isSubtotal || item.isGrandTotal || item.isCategory) ? "disabled" : "";
-
-            td.innerHTML = `
-              <span class="label">Rate</span>
-              <input type="number" class="rate-input ${cls}" value="${b.rate || 0}"
-                     data-row-index="${rowIndex}" data-bidder-index="${i}"
-                     onchange="handleRateChange(this, '${sheetName}')" ${disabled}/>
-              <span class="label">Amt</span>
-              <span class="val">${formatCurrency(b.amount || 0)}</span>
-            `;
-            tr.appendChild(td);
-          });
-
-          // Least compact
-          const least = findLeastBid(item);
-          const tdLeast = document.createElement("td");
-          tdLeast.className = "compact-cell least-rate-cell";
-          tdLeast.innerHTML = `
-            <span class="label">Rate</span><span class="val">${item.isSubtotal || item.isGrandTotal || item.isCategory ? "" : formatCurrency(least.rate)}</span>
-            <span class="label">Amt</span><span class="val least-amount-cell">${item.isSubtotal || item.isGrandTotal || item.isCategory ? "" : formatCurrency(least.amount)}</span>
-          `;
-          tr.appendChild(tdLeast);
-
-          tbody.appendChild(tr);
-        });
-      }
-
-      table.append(thead, tbody);
-      viewport.appendChild(table);
-
-      // add top scrollbar (sync width + scroll)
-      tableContainer.appendChild(topBar);
-      tableContainer.appendChild(viewport);
-      tablesContainer.appendChild(tableContainer);
-
-      // Sync top scrollbar width to table width
-      const totalWidth = table.scrollWidth;
-      topInner.style.width = totalWidth + "px";
-
-      // Sync scrolling both ways
-      let syncing = false;
-      topBar.addEventListener("scroll", () => {
-        if (syncing) return; syncing = true; viewport.scrollLeft = topBar.scrollLeft; syncing = false;
-      });
-      viewport.addEventListener("scroll", () => {
-        if (syncing) return; syncing = true; topBar.scrollLeft = viewport.scrollLeft; syncing = false;
-      });
-    }
-
-    // ---------- Helpers ----------
-    function handleRateChange(input, sheetName) {
-      const rowIndex = parseInt(input.dataset.rowIndex);
-      const bidderIndex = parseInt(input.dataset.bidderIndex);
-      const newRate = parseFloat(input.value) || 0;
-      if (consolidatedData[sheetName]?.[rowIndex]) {
-        consolidatedData[sheetName][rowIndex].bidders[bidderIndex].rate = newRate;
-      }
-      calculateAllTotals();
-      const activeTab = document.querySelector(".tab-button.active").dataset.sheet;
-      renderTableForSheet(activeTab);
-
-      // Return focus to the same field
-      setTimeout(() => {
-        const selector = `#table-${sheetName.replace(/\s|&/g, "-")} input[data-row-index="${rowIndex}"][data-bidder-index="${bidderIndex}"]`;
-        const el = document.querySelector(selector);
-        if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
-      }, 0);
-    }
-
-    function findLeastBid(item) {
-      if (!item.bidders || item.bidders.length === 0 || !item.qty) return { rate: 0, amount: 0 };
-      const valid = item.bidders.filter((b) => b.rate > 0);
-      if (valid.length === 0) return { rate: 0, amount: 0 };
-      const min = valid.reduce((m, c) => (c.rate < m.rate ? c : m), valid[0]);
-      return { rate: min.rate, amount: min.rate * item.qty };
-    }
-
-    function formatCurrency(num) {
-      if (typeof num !== "number" || !isFinite(num)) return "0";
-      return new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(num);
-    }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-      
-
-
-
-async function handleDownloadExcelJS() {
-  const workbook = new ExcelJS.Workbook();
-
-  // --- Adjustable settings ---
-  const TOP_CATEGORY_MIN_HEIGHT = 28;   // BOQ pages (not Summary)
-  const SPACER_ROW_HEIGHT = 15;         // blank row after subtotals (BOQ)
-
-  // --- Inputs with validation defaults ---
-  const defaultProject = "Proposed Industrial Building for M/s DGG Exports Pvt. Ltd At Shiggaon, Karnataka";
-  const projectName = (prompt("Enter Project Name:", defaultProject) || defaultProject).trim();
-
-  const lowInput = parseFloat(prompt("Enter LOW variance threshold (e.g., 0.8):", "0.8"));
-  const highInput = parseFloat(prompt("Enter HIGH variance threshold (e.g., 1.2):", "1.2"));
-  const selectedVarianceLow = Number.isFinite(lowInput) ? lowInput : 0.8;
-  const selectedVarianceHigh = Number.isFinite(highInput) ? highInput : 1.2;
-
-  const sheetsToDownload = SHEET_NAMES.filter(
-    (name) => consolidatedData[name] && consolidatedData[name].length > 0
-  );
-
-  // --- Helpers ---
-  const RATE_FMT = "#,##0.00";
-  const AMT_FMT = "#,##0";
-  const GREY_200 = "FFE5E7EB";
-  const HEADER_PEACH = "FFFCE4D6";
-  const isSummary = (n) => n === "Summary";
-  const isSubtotalText = (txt = "") => /sub[\s-]?total/i.test(String(txt));
-
-  const insertWrapHints = (txt) => {
-    if (txt == null) return "";
-    const s = String(txt)
-      .replace(/\s+/g, " ")
-      .replace(/\//g, "/\u200b")
-      .replace(/-/g, "-\u200b");
-    return s.trim();
+  <!-- ====== JAVASCRIPT LOGIC ====== -->
+<script>
+  // ---------- CONFIGURATION ----------
+  const DEFAULT_BOQ_CONFIG = { startRow: 5, slNoCol: 0, descCol: 1, unitCol: 2, qtyCol: 3, rateCol: 4, amountCol: 5 };
+  const DATA_CONFIG = {
+    "BOQ-Compound Wall": { startRow: 3, slNoCol: 0, descCol: 1, unitCol: 2, qtyCol: 3, rateCol: 4, amountCol: 5 }
+  };
+  const ESTIMATE_CONFIG = {
+    "BOQ-Compound Wall": { startRow: 4, slNoCol: 0, descCol: 1, unitCol: 2, qtyCol: 3, rateCol: 4, amountCol: 5 }
   };
 
-  const formatSlNo = (val) => {
-    if (val == null) return "";
-    if (typeof val === "number") {
-      const rounded = Math.round((val + Number.EPSILON) * 1000) / 1000;
-      let s = String(rounded);
-      if (/e/i.test(s)) s = rounded.toFixed(6);
-      s = s.replace(/(\.\d*?[1-9])0+$/,"$1").replace(/\.0+$/,"");
-      return s;
-    }
-    const str = String(val).trim();
-    if (/^\d+(\.\d+)?$/.test(str)) return formatSlNo(parseFloat(str));
-    return str;
-  };
+  // ---------- GLOBAL STATE ----------
+  let consolidatedData = {};
+  let bidderNames = [];
+  let processedSheetNames = [];
 
-  const estimateRowHeight = (text, colWidth, lineHeight = 16, min = 18, max = 120) => {
-    const s = (text || "").toString();
-    if (!s) return min;
-    const hardLines = s.split(/\r\n|\n/);
-    const perLineCap = Math.max(1, Math.floor(colWidth * 1.1));
-    let logicalLines = 0;
-    for (const ln of hardLines) {
-      logicalLines += Math.max(1, Math.ceil(ln.length / perLineCap));
-    }
-    return Math.min(max, Math.max(min, logicalLines * lineHeight));
-  };
+  // ---------- DOM ELEMENTS ----------
+  const processButton = document.getElementById("process-button");
+  const downloadButton = document.getElementById("download-button");
+  const estimateFileInput = document.getElementById("estimate-file");
+  const bidderFilesInput = document.getElementById("bidder-files");
+  const outputSection = document.getElementById("output-section");
+  const loader = document.getElementById("loader");
 
-  // --- ONE-TIME logo (use same id for every sheet) ---
-  const ANP_LOGO_BASE64 = "data:image/jpeg;base64,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"
-  const logoId = workbook.addImage({
-    base64: ANP_LOGO_BASE64.replace(/^data:image\/(png|jpeg);base64,/, ""),
-    extension: "jpeg",
+  // ---------- EVENT LISTENERS ----------
+  processButton.addEventListener("click", handleProcessFiles);
+  downloadButton.addEventListener("click", () => {
+    if (typeof window.handleDownloadExcelJS === "function") window.handleDownloadExcelJS();
   });
 
-  for (const sheetName of sheetsToDownload) {
-    const sheet = workbook.addWorksheet(sheetName.substring(0, 31));
+  // ---------- CORE LOGIC ----------
+  async function handleProcessFiles() {
+    const estimateFile = estimateFileInput.files[0];
+    const bidderFiles = bidderFilesInput.files;
 
-    // Track spacer rows (for BOQ pages) to skip borders
-    const spacerRowNumbers = new Set();
-
-    // --- Header (common) ---  (A–D = title area, E/F = controls, G = logo space)
-    sheet.mergeCells("A1", "D1");
-    sheet.getCell("A1").value = `Project  : ${projectName}`;
-    sheet.getCell("A1").font = { bold: true };
-    sheet.getCell("A1").alignment = { horizontal: "left", vertical: "middle" };
-
-    sheet.mergeCells("A2", "D2");
-    sheet.getCell("A2").value = `Scope : Civil Works`;
-    sheet.getCell("A2").font = { bold: true };
-    sheet.getCell("A2").alignment = { horizontal: "left", vertical: "middle" };
-
-    // Move Low/High left by one column (E/F)
-    sheet.getCell("E1").value = `Low: ${selectedVarianceLow}`;
-    sheet.getCell("E1").fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFBFD7EA" } };
-    sheet.getCell("E1").alignment = { horizontal: "center", vertical: "middle" };
-
-    sheet.getCell("F1").value = `High: ${selectedVarianceHigh}`;
-    sheet.getCell("F1").fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFD2B3" } };
-    sheet.getCell("F1").alignment = { horizontal: "center", vertical: "middle" };
-
-    // Move Date/Rev left by one column (E/F row 2)
-    sheet.getCell("E2").value = `Date: ${new Date().toLocaleDateString()}`;
-    sheet.getCell("E2").alignment = { horizontal: "right", vertical: "middle" };
-
-    sheet.getCell("F2").value = `Rev: R0`;
-    sheet.getCell("F2").alignment = { horizontal: "right", vertical: "middle" };
-
-    // Row heights & column widths for header
-    sheet.getRow(1).height = 48;
-    sheet.getRow(2).height = 44;
-
-    sheet.getColumn("E").width = 18;
-    sheet.getColumn("F").width = 18;
-    sheet.getColumn("G").width = 20; // reserved for logo
-
-    // 🔵 Place logo on every sheet (Summary + BOQ)
-    sheet.addImage(logoId, { tl: { col: 6.8, row: 0.2 }, ext: { width: 95, height: 95 } });
-
-    // ====================== SUMMARY SHEET (excel view) ======================
-    if (isSummary(sheetName)) {
-      // Spacer
-      sheet.addRow([]);
-
-      // Header row
-      const headers = [
-        "Sl. No",
-        "Description",
-        "Estimate",
-        ...bidderNames.map((name) => `${name}`),
-        "Least Amount"
-      ];
-      const headerRow = sheet.addRow(headers);
-      headerRow.font = { bold: true };
-      headerRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: HEADER_PEACH } };
-      headerRow.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-      headerRow.height = 28;
-
-      // Column widths
-      sheet.getColumn(1).width = 10;
-      sheet.getColumn(2).width = 60;
-      for (let c = 3; c <= 2 + bidderNames.length + 1; c++) {
-        const col = sheet.getColumn(c);
-        col.width = 18;
-        col.alignment = { horizontal: "right", vertical: "middle", wrapText: true };
-        col.numFmt = AMT_FMT;
-      }
-
-      // Rows
-      const rows = consolidatedData.Summary || [];
-      rows.forEach((row) => {
-        const xlsRow = sheet.addRow([
-          formatSlNo(row.slNo || ""),
-          insertWrapHints(row.description || ""),
-          row.estimateAmount || 0,
-          ...(row.bidderAmounts || Array(bidderNames.length).fill(0)),
-          row.leastAmount || 0
-        ]);
-
-        xlsRow.getCell(3).numFmt = AMT_FMT;
-        for (let i = 0; i < bidderNames.length; i++) {
-          xlsRow.getCell(4 + i).numFmt = AMT_FMT;
-        }
-        xlsRow.getCell(4 + bidderNames.length).numFmt = AMT_FMT;
-
-        // Description cell wrapping + row height
-        xlsRow.getCell(2).alignment = { horizontal: "left", vertical: "top", wrapText: true };
-        xlsRow.height = Math.max(28, estimateRowHeight(xlsRow.getCell(2).value, 60));
-
-        // Category/Subtotal/Grand styling
-        if (row.kind === "category" || row.kind === "subtotal" || row.kind === "grand" || row.isTotal) {
-          xlsRow.font = { bold: true };
-          xlsRow.eachCell({ includeEmpty: true }, (cell) => {
-            cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: GREY_200 } };
-            const a = cell.alignment || {};
-            cell.alignment = { ...a, vertical: "middle" };
-          });
-        }
-      });
-
-      // Borders for Summary
-      sheet.eachRow((row) => {
-        row.eachCell({ includeEmpty: true }, (cell) => {
-          cell.border = {
-            top: { style: 'thin' },
-            left: { style: 'thin' },
-            bottom: { style: 'thin' },
-            right: { style: 'thin' },
-          };
-          if (cell.value == null) cell.value = '';
-        });
-      });
-
-      sheet.views = [{ state: "frozen", ySplit: 4 }];
+    if (!estimateFile || bidderFiles.length === 0) {
+      alert("Please select an estimate file and at least one bidder file.");
+      return;
+    }
+    if (bidderFiles.length > 7) {
+      alert("You can select a maximum of 7 bidder files.");
+      return;
     }
 
-    // ====================== BOQ SHEETS ======================
-    else {
-      const header1 = [
-        "Sl. No.",
-        "Description of Items",
-        "Unit",
-        "Estimated", "", "",
-        ...bidderNames.flatMap((name) => [name, ""]),
-        "Least Bid", ""
-      ];
-      const header2 = [
-        "", "", "", "Qty", "Rate", "Amount",
-        ...bidderNames.flatMap(() => ["Rate", "Amount"]),
-        "Rate", "Amount"
-      ];
+    loader.classList.remove("hidden");
+    outputSection.classList.add("hidden");
 
-      sheet.addRow([]); // spacer
-      const h1 = sheet.addRow(header1);
-      const h2 = sheet.addRow(header2);
+    try {
+      bidderNames = Array.from(bidderFiles).map((f) =>
+        f.name.split(".")[0].replace(/DGG_BIDDER_/i, "BIDDER ").trim()
+      );
 
-      // Merge header groups
-      sheet.mergeCells(4, 4, 4, 6);
-      bidderNames.forEach((_, i) => {
-        const startCol = 7 + i * 2;
-        sheet.mergeCells(4, startCol, 4, startCol + 1);
-      });
-      const leastStart = 7 + bidderNames.length * 2;
-      sheet.mergeCells(4, leastStart, 4, leastStart + 1);
+      const estimateData = await parseExcelFile(estimateFile, true);
+      const biddersData = await Promise.all(Array.from(bidderFiles).map((file) => parseExcelFile(file, false)));
 
-      [h1, h2].forEach((row) => {
-        row.font = { bold: true };
-        row.fill = { type: "pattern", pattern: "solid", fgColor: { argb: HEADER_PEACH } };
-        row.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-        row.height = 28;
-      });
+      const boqSheetNames = Object.keys(estimateData).sort();
+      processedSheetNames = ["Summary", ...boqSheetNames];
 
-      // Column widths
-      const descWidth = 72;
-      const baseWidths = [9, descWidth, 10, 12, 12, 14];
-      const bidderWidths = bidderNames.flatMap(() => [12, 14]);
-      const leastWidths = [12, 14];
-      [...baseWidths, ...bidderWidths, ...leastWidths]
-        .forEach((w, i) => sheet.getColumn(i + 1).width = w);
+      consolidateAllData(estimateData, biddersData);
 
-      // Track first (top) occurrence of each category number
-      const seenTopCategories = new Set();
+      const { lower, upper } = getVarianceThresholds();
+      document.getElementById("lower-variance-label").textContent = `Low < ${lower}`;
+      document.getElementById("upper-variance-label").textContent = `High > ${upper}`;
 
-      consolidatedData[sheetName].forEach((item) => {
-        const slNoStr = String(item.slNo);
-        const isPureInt = /^\d+$/.test(slNoStr);
-        const isTopCategory = item.isCategory && isPureInt && !seenTopCategories.has(slNoStr);
-
-        const leastBid = findLeastBid(item);
-        const isEditable = !item.isSubtotal && !item.isGrandTotal && !item.isCategory;
-        const prettyDesc = insertWrapHints(item.description);
-
-        const newRow = sheet.addRow([
-          formatSlNo(item.slNo),
-          prettyDesc,
-          item.unit,
-          item.qty ?? null,
-          isEditable ? item.estimate.rate : null,
-          item.estimate.amount,
-          ...item.bidders.flatMap((b) => [isEditable ? b.rate : null, b.amount]),
-          isEditable ? leastBid.rate : null,
-          isEditable ? leastBid.amount : null,
-        ]);
-
-        // Alignments & number formats
-        newRow.getCell(1).alignment = { vertical: "top", horizontal: "left", wrapText: true };
-        newRow.getCell(2).alignment = { vertical: "top", horizontal: "left", wrapText: true };
-        newRow.getCell(3).alignment = { vertical: "top", horizontal: "center", wrapText: true };
-        newRow.getCell(4).alignment = { vertical: "top", horizontal: "right", wrapText: true };
-        newRow.getCell(4).numFmt = AMT_FMT;
-
-        newRow.getCell(5).alignment = { vertical: "top", horizontal: "right", wrapText: true };
-        newRow.getCell(5).numFmt = RATE_FMT;
-        newRow.getCell(6).alignment = { vertical: "top", horizontal: "right", wrapText: true };
-        newRow.getCell(6).numFmt = AMT_FMT;
-
-        for (let i = 0; i < bidderNames.length; i++) {
-          const rateCell = newRow.getCell(7 + i * 2);
-          const amtCell = newRow.getCell(7 + i * 2 + 1);
-          rateCell.alignment = { vertical: "top", horizontal: "right", wrapText: true };
-          rateCell.numFmt = RATE_FMT;
-          amtCell.alignment = { vertical: "top", horizontal: "right", wrapText: true };
-          amtCell.numFmt = AMT_FMT;
-        }
-
-        const leastStartCol = 7 + bidderNames.length * 2;
-        newRow.getCell(leastStartCol).alignment = { vertical: "top", horizontal: "right", wrapText: true };
-        newRow.getCell(leastStartCol).numFmt = RATE_FMT;
-        newRow.getCell(leastStartCol + 1).alignment = { vertical: "top", horizontal: "right", wrapText: true };
-        newRow.getCell(leastStartCol + 1).numFmt = AMT_FMT;
-
-        // Variance shading on bidder RATE vs estimate RATE
-        item.bidders.forEach((b, i) => {
-          const estRate = item.estimate.rate || 0;
-          if (estRate && b.rate) {
-            const variance = b.rate / estRate;
-            const rateCell = newRow.getCell(7 + i * 2);
-            if (variance < selectedVarianceLow) {
-              rateCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFBFD7EA" } };
-            } else if (variance > selectedVarianceHigh) {
-              rateCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFD2B3" } };
-            }
-          }
-        });
-
-        // ----- STYLING: Top Category, Subtotal, Grand Total -----
-        const baseHeight = estimateRowHeight(prettyDesc, descWidth);
-        const isSubtotal = item.isSubtotal || isSubtotalText(item.description);
-
-        if (isSubtotal) {
-          newRow.font = { bold: true };
-          newRow.eachCell({ includeEmpty: true }, (cell) => {
-            cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: GREY_200 } };
-            const a = cell.alignment || {};
-            cell.alignment = { ...a, vertical: "middle" };
-          });
-          newRow.height = Math.max(baseHeight, TOP_CATEGORY_MIN_HEIGHT);
-
-          // Spacer row after subtotal
-          const spacer = sheet.addRow([]);
-          spacer.height = SPACER_ROW_HEIGHT;
-          spacerRowNumbers.add(spacer.number);
-        }
-
-        if (item.isGrandTotal) {
-          newRow.font = { bold: true };
-          newRow.eachCell({ includeEmpty: true }, (cell) => {
-            cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: GREY_200 } };
-            const a = cell.alignment || {};
-            cell.alignment = { ...a, vertical: "middle" };
-          });
-          newRow.height = Math.max(baseHeight, TOP_CATEGORY_MIN_HEIGHT);
-        }
-
-        if (isTopCategory) {
-          newRow.font = { bold: true };
-          newRow.eachCell({ includeEmpty: true }, (cell) => {
-            cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: GREY_200 } };
-            const a = cell.alignment || {};
-            cell.alignment = { ...a, vertical: "middle" };
-          });
-          newRow.height = Math.max(baseHeight, TOP_CATEGORY_MIN_HEIGHT);
-          seenTopCategories.add(slNoStr);
-        }
-
-        if (!isSubtotal && !item.isGrandTotal && !isTopCategory) {
-          newRow.height = baseHeight;
-        }
-      });
-
-      sheet.views = [{ state: "frozen", ySplit: 5 }];
-
-      // Borders — skip spacer rows
-      sheet.eachRow((row) => {
-        if (spacerRowNumbers.has(row.number)) {
-          row.eachCell({ includeEmpty: true }, (cell) => {
-            cell.value = '';
-            cell.border = undefined;
-            cell.fill = undefined;
-          });
-          return;
-        }
-        row.eachCell({ includeEmpty: true }, (cell) => {
-          cell.border = {
-            top: { style: 'thin' },
-            left: { style: 'thin' },
-            bottom: { style: 'thin' },
-            right: { style: 'thin' },
-          };
-          if (cell.value == null) cell.value = '';
-        });
-      });
+      renderUI();
+      outputSection.classList.remove("hidden");
+      downloadButton.classList.remove("hidden");
+    } catch (e) {
+      console.error("Error during file processing:", e);
+      alert("An error occurred while processing the files. Please check the console for details.");
+    } finally {
+      loader.classList.add("hidden");
     }
-    // ====================== END BOQ SHEETS ======================
   }
 
-  // Generate and download
-  const buffer = await workbook.xlsx.writeBuffer();
-  const blob = new Blob([buffer], {
-    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  });
-  saveAs(blob, "DGG_Civil_CS_Consolidated_Output.xlsx");
-}
+  // Read Excel using formatted cell text to avoid 4.010999999 tails, and keep blanks as ""
+  function parseExcelFile(file, isEstimate) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const workbook = XLSX.read(e.target.result, { type: "binary" });
+          const parsedSheets = {};
+          workbook.SheetNames.forEach((sheetName) => {
+            if (sheetName.toLowerCase() === "summary") return;
+            const config = getConfigForSheet(sheetName, isEstimate);
+            if (config) {
+              const worksheet = workbook.Sheets[sheetName];
+              const jsonData = XLSX.utils.sheet_to_json(worksheet, {
+                header: 1,
+                range: config.startRow - 1,
+                raw: false,   // <- use formatted text (fixes 99999 tails)
+                defval: ""    // <- avoid undefined holes
+              });
+              parsedSheets[sheetName] = jsonData;
+            }
+          });
+          resolve(parsedSheets);
+        } catch (err) {
+          reject(err);
+        }
+      };
+      reader.onerror = reject;
+      reader.readAsBinaryString(file);
+    });
+  }
+
+  // Normalize and compare Sr. No. values (treat "1", "1.0", "1.00" the same)
+  function normalizeSrNo(value) {
+    const s = String(value ?? "").trim();
+    if (!s) return "";
+    const only = s.replace(/[^\d.]/g, "");
+    if (!only) return "";
+    if (only.includes(".")) {
+      let t = only.replace(/(?:\.0+)$|(?<=\.\d*[1-9])0+$/g, "");
+      if (t.endsWith(".")) t = t.slice(0, -1);
+      return t;
+    }
+    return only.replace(/^0+/, "") || "0";
+  }
+
+  function consolidateAllData(estimateData, biddersData) {
+    consolidatedData = {};
+    for (const sheetName in estimateData) {
+      const estimateConfig = getConfigForSheet(sheetName, true);
+      const bidderConfig = getConfigForSheet(sheetName, false);
+      if (!estimateConfig || !bidderConfig) continue;
+
+      consolidatedData[sheetName] = estimateData[sheetName]
+        .map((row) => {
+          const slNoRaw = row[estimateConfig.slNoCol];
+          const slNo = String(slNoRaw || "").trim();
+          const description = row[estimateConfig.descCol] || "";
+          if (!slNo && !description) return null;
+
+          const isTopCategory = /^\d+(?:\.0+)?$/.test(slNo);
+
+          const item = {
+            slNo,
+            description,
+            unit: row[estimateConfig.unitCol] || "",
+            qty: parseQty(row[estimateConfig.qtyCol]),
+            estimate: { rate: parseFloat(row[estimateConfig.rateCol]) || 0, amount: 0 },
+            bidders: [],
+            isSubtotal: description.toLowerCase().includes("sub-total"),
+            isGrandTotal:
+              description.toUpperCase().includes("GRAND TOTAL") ||
+              description.toUpperCase().includes("TOTAL AMOUNT"),
+            isCategory: isTopCategory
+          };
+
+          // match bidder row by normalized Sr. No.
+          const estimateKey = normalizeSrNo(slNo);
+          biddersData.forEach((bidder, index) => {
+            const bidderSheet = bidder[sheetName];
+            let bidderRate = 0;
+            if (bidderSheet) {
+              const match = bidderSheet.find((bRow) => {
+                const bidderKey = normalizeSrNo(bRow[bidderConfig.slNoCol]);
+                return bidderKey && bidderKey === estimateKey;
+              });
+              if (match) bidderRate = parseFloat(match[bidderConfig.rateCol]) || 0;
+            }
+            item.bidders.push({ name: bidderNames[index], rate: bidderRate, amount: 0 });
+          });
+
+          return item;
+        })
+        .filter(Boolean);
+    }
+    calculateAllTotals();
+  }
+
+  function calculateAllTotals() {
+    let summarySheetData = {};
+
+    for (const sheetName of Object.keys(consolidatedData)) {
+      const sheetData = consolidatedData[sheetName];
+
+      // Row amounts
+      sheetData.forEach((item) => {
+        if (!item.isSubtotal && !item.isGrandTotal && !item.isCategory) {
+          item.bidders.forEach((bidder) => (bidder.amount = item.qty * bidder.rate));
+          item.estimate.amount = item.qty * item.estimate.rate;
+        }
+      });
+
+      // Subtotals within sections
+      let currentSubTotal = { estimate: 0, bidders: Array(bidderNames.length).fill(0) };
+      sheetData.forEach((item) => {
+        if (item.isCategory) {
+          currentSubTotal = { estimate: 0, bidders: Array(bidderNames.length).fill(0) };
+        } else if (item.isSubtotal) {
+          item.estimate.amount = currentSubTotal.estimate;
+          item.bidders.forEach((b, i) => (b.amount = currentSubTotal.bidders[i]));
+          currentSubTotal = { estimate: 0, bidders: Array(bidderNames.length).fill(0) };
+        } else if (!item.isGrandTotal) {
+          currentSubTotal.estimate += item.estimate.amount;
+          item.bidders.forEach((b, i) => (currentSubTotal.bidders[i] += b.amount));
+        }
+      });
+
+      // Category totals (sum items like 1.01, 1.02 ... to fill row "1 Earth Work")
+      const categoryTotalsMap = {};
+      sheetData.forEach((item) => {
+        if (item.slNo && String(item.slNo).includes(".") && !item.isCategory) {
+          const key = String(item.slNo).split(".")[0]; // "1" from "1.02"
+          if (!categoryTotalsMap[key]) categoryTotalsMap[key] = { estimate: 0, bidders: Array(bidderNames.length).fill(0) };
+          categoryTotalsMap[key].estimate += item.estimate.amount;
+          item.bidders.forEach((b, i) => (categoryTotalsMap[key].bidders[i] += b.amount));
+        }
+      });
+
+      // Put totals onto header rows "1", "2", "3"...
+      sheetData.forEach((item) => {
+        const key = normalizeSrNo(item.slNo);
+        if (item.isCategory && categoryTotalsMap[key]) {
+          item.estimate.amount = categoryTotalsMap[key].estimate;
+          item.bidders.forEach((b, i) => (b.amount = categoryTotalsMap[key].bidders[i]));
+        }
+      });
+
+      // Grand total from category totals
+      const grand = { estimate: 0, bidders: Array(bidderNames.length).fill(0) };
+      Object.values(categoryTotalsMap).forEach((sub) => {
+        grand.estimate += sub.estimate;
+        grand.bidders.forEach((_, i) => (grand.bidders[i] += sub.bidders[i]));
+      });
+      const grandRow = sheetData.find((i) => i.isGrandTotal);
+      if (grandRow) {
+        grandRow.estimate.amount = grand.estimate;
+        grandRow.bidders.forEach((b, i) => (b.amount = grand.bidders[i]));
+      }
+
+      summarySheetData[sheetName] = { estimateAmount: grand.estimate, bidderAmounts: grand.bidders };
+    }
+
+    buildSummarySheet(summarySheetData);
+  }
+
+  function buildSummarySheet(summaryData) {
+    const addArr = (a, b) => a.map((v, i) => v + (b[i] || 0));
+    const bidderZero = () => Array(bidderNames.length).fill(0);
+
+    const rows = [];
+    let totalABC = { estimateAmount: 0, bidderAmounts: bidderZero() };
+
+    const sheetOrder = processedSheetNames.slice(1);
+
+    const createRow = (kind, slNo, description, amounts) => {
+      const validBids = (amounts.bidderAmounts || []).filter((a) => a > 0);
+      return {
+        kind,
+        slNo,
+        description,
+        ...amounts,
+        leastAmount: validBids.length > 0 ? Math.min(...validBids) : 0
+      };
+    };
+
+    const groupAKeys = sheetOrder.filter((s) => s.includes("Main Bldg") || s.includes("Admin"));
+    const groupBKeys = sheetOrder.filter(
+      (s) => s.includes("Roads") || s.includes("Compound Wall") || s.includes("UG Sump") || s.includes("Storm Water")
+    );
+    const groupCKeys = sheetOrder.filter((s) => !groupAKeys.includes(s) && !groupBKeys.includes(s));
+
+    // Group A
+    rows.push(createRow("category", "A", "Building Works", { estimateAmount: 0, bidderAmounts: bidderZero() }));
+    let totalA = { estimateAmount: 0, bidderAmounts: bidderZero() };
+    groupAKeys.forEach((key, idx) => {
+      const data = summaryData[key];
+      if (data) {
+        rows.push(createRow("item", idx + 1, key.replace(/BOQ-?/i, ""), data));
+        totalA.estimateAmount += data.estimateAmount;
+        totalA.bidderAmounts = addArr(totalA.bidderAmounts, data.bidderAmounts);
+      }
+    });
+    rows.push(createRow("subtotal", "", "Total of A (Rs.)", totalA));
+    totalABC.estimateAmount += totalA.estimateAmount;
+    totalABC.bidderAmounts = addArr(totalABC.bidderAmounts, totalA.bidderAmounts);
+
+    // Group B
+    rows.push(createRow("category", "B", "External Development", { estimateAmount: 0, bidderAmounts: bidderZero() }));
+    let totalB = { estimateAmount: 0, bidderAmounts: bidderZero() };
+    groupBKeys.forEach((key, idx) => {
+      const data = summaryData[key];
+      if (data) {
+        rows.push(createRow("item", idx + 3, key.replace(/BOQ-?/i, ""), data));
+        totalB.estimateAmount += data.estimateAmount;
+        totalB.bidderAmounts = addArr(totalB.bidderAmounts, data.bidderAmounts);
+      }
+    });
+    rows.push(createRow("subtotal", "", "Total of B (Rs.)", totalB));
+    totalABC.estimateAmount += totalB.estimateAmount;
+    totalABC.bidderAmounts = addArr(totalABC.bidderAmounts, totalB.bidderAmounts);
+
+    // Group C
+    rows.push(createRow("category", "C", "B/F Plumbing and sanitary works", { estimateAmount: 0, bidderAmounts: bidderZero() }));
+    let totalC = { estimateAmount: 0, bidderAmounts: bidderZero() };
+    groupCKeys.forEach((key) => {
+      const data = summaryData[key];
+      if (data) {
+        rows.push(createRow("item", "", key.replace(/BOQ-?/i, ""), data));
+        totalC.estimateAmount += data.estimateAmount;
+        totalC.bidderAmounts = addArr(totalC.bidderAmounts, data.bidderAmounts);
+      }
+    });
+    if (totalC.estimateAmount > 0 || totalC.bidderAmounts.some((a) => a > 0)) {
+      rows.push(createRow("subtotal", "", "Total of C (Rs.)", totalC));
+      totalABC.estimateAmount += totalC.estimateAmount;
+      totalABC.bidderAmounts = addArr(totalABC.bidderAmounts, totalC.bidderAmounts);
+    }
+
+    // Difference, grand and GST
+    const difference = {
+      estimateAmount: 0,
+      bidderAmounts: totalABC.bidderAmounts.map((b) => b - totalABC.estimateAmount),
+      leastAmount: 0
+    };
+    rows.push(createRow("item", "", "Difference in value", difference));
+
+    rows.push(createRow("grand", "D", "Total Of (A+B+C)", totalABC));
+
+    const gst = {
+      estimateAmount: totalABC.estimateAmount * 0.18,
+      bidderAmounts: totalABC.bidderAmounts.map((b) => b * 0.18)
+    };
+    rows.push(createRow("item", "", "GST @ 18%", gst));
+
+    const finalTotal = {
+      estimateAmount: totalABC.estimateAmount + gst.estimateAmount,
+      bidderAmounts: totalABC.bidderAmounts.map((b, i) => b + gst.bidderAmounts[i])
+    };
+    rows.push(createRow("grand", "", "Total including GST Rs.", finalTotal));
+
+    consolidatedData.Summary = rows;
+  }
+
+  // ---------- UI RENDERING ----------
+  function renderUI() {
+    renderTabs();
+    const firstSheet = processedSheetNames[0];
+    renderTableForSheet(firstSheet);
+    const firstTab = document.querySelector(".tab-button");
+    if (firstTab) firstTab.classList.add("active");
+  }
+
+  function renderTabs() {
+    const tabsContainer = document.getElementById("tabs-container");
+    tabsContainer.innerHTML = "";
+    processedSheetNames.forEach((sheetName) => {
+      const btn = document.createElement("button");
+      btn.textContent = sheetName.replace(/BOQ-?/i, "");
+      btn.className =
+        "tab-button border-b-2 border-transparent py-2 px-4 text-sm font-medium text-gray-300 hover:text-gray-100 hover:border-gray-500";
+      btn.dataset.sheet = sheetName;
+      btn.addEventListener("click", (e) => {
+        document.querySelectorAll(".tab-button").forEach((b) => b.classList.remove("active"));
+        e.target.classList.add("active");
+        renderTableForSheet(sheetName);
+      });
+      tabsContainer.appendChild(btn);
+    });
+  }
+
+  function renderTableForSheet(sheetName) {
+    const tablesContainer = document.getElementById("tables-container");
+    tablesContainer.innerHTML = "";
+    const data = consolidatedData[sheetName];
+    if (!data) {
+      tablesContainer.innerHTML = `<p class="p-4">No data available for ${sheetName}.</p>`;
+      return;
+    }
+
+    const tableContainer = document.createElement("div");
+    tableContainer.className = "table-container";
+    const topBar = document.createElement("div");
+    topBar.className = "top-scrollbar";
+    const topInner = document.createElement("div");
+    topInner.className = "top-scrollbar-inner";
+    topBar.appendChild(topInner);
+    const viewport = document.createElement("div");
+    viewport.className = "table-viewport";
+    const table = document.createElement("table");
+    table.id = `table-${sheetName.replace(/[\s&]/g, "-")}`;
+    const thead = document.createElement("thead");
+    const tbody = document.createElement("tbody");
+
+    if (sheetName === "Summary") {
+      renderSummaryTable(thead, tbody, data);
+    } else {
+      renderBoqTable(thead, tbody, data, sheetName);
+    }
+
+    table.append(thead, tbody);
+    viewport.appendChild(table);
+    tableContainer.appendChild(topBar);
+    tableContainer.appendChild(viewport);
+    tablesContainer.appendChild(tableContainer);
+
+    topInner.style.width = table.scrollWidth + "px";
+    let syncing = false;
+    topBar.addEventListener("scroll", () => {
+      if (syncing) return;
+      syncing = true;
+      viewport.scrollLeft = topBar.scrollLeft;
+      syncing = false;
+    });
+    viewport.addEventListener("scroll", () => {
+      if (syncing) return;
+      syncing = true;
+      topBar.scrollLeft = viewport.scrollLeft;
+      syncing = false;
+    });
+  }
+
+  function renderSummaryTable(thead, tbody, data) {
+    const headerRow = document.createElement("tr");
+    const cols = ["Sl. No", "Description", "Estimate", ...bidderNames, "Least Amount"];
+    cols.forEach((c, i) => {
+      const th = document.createElement("th");
+      th.textContent = c;
+      if (i === 0) th.classList.add("sticky-col-1", "col-slno");
+      if (i === 1) th.classList.add("sticky-col-2", "col-desc");
+      headerRow.appendChild(th);
+    });
+    thead.appendChild(headerRow);
+
+    data.forEach((row) => {
+      const tr = document.createElement("tr");
+      if (row.kind === "category") tr.className = "category-header";
+      else if (row.kind === "subtotal") tr.className = "subtotal-row";
+      else if (row.kind === "grand") tr.className = "grand-total-row";
+
+      tr.innerHTML = `
+        <td class="sticky-col-1 col-slno">${row.slNo || ""}</td>
+        <td class="sticky-col-2 col-desc">${row.description || ""}</td>
+        <td class="amount-cell">${formatCurrency(row.estimateAmount || 0)}</td>
+        ${bidderNames
+          .map((_, i) => `<td class="amount-cell">${formatCurrency((row.bidderAmounts || [])[i] || 0)}</td>`)
+          .join("")}
+        <td class="least-amount-cell">${formatCurrency(row.leastAmount || 0)}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  function renderBoqTable(thead, tbody, data, sheetName) {
+    const h1 = document.createElement("tr");
+    h1.innerHTML = `
+      <th rowspan="2" class="sticky-col-1 col-slno">Sl. No.</th>
+      <th rowspan="2" class="sticky-col-2 col-desc">Description of Items</th>
+      <th rowspan="2">Unit</th>
+      <th rowspan="2">Qty</th>
+      <th colspan="2">Estimate</th>
+      ${bidderNames.map((name) => `<th colspan="2">${name}</th>`).join("")}
+      <th colspan="2">Least Bid</th>
+    `;
+    const h2 = document.createElement("tr");
+    const ra = `<th class="amount-cell">Rate</th><th class="amount-cell">Amount</th>`;
+    h2.innerHTML = `${ra.repeat(1 + bidderNames.length + 1)}`;
+    thead.append(h1, h2);
+
+    const { lower, upper } = getVarianceThresholds();
+
+    data.forEach((item, rowIndex) => {
+      const tr = document.createElement("tr");
+      if (item.isSubtotal) tr.className = "subtotal-row";
+      else if (item.isGrandTotal) tr.className = "grand-total-row";
+      else if (item.isCategory) tr.className = "category-header";
+
+      const isEditable = !item.isSubtotal && !item.isGrandTotal && !item.isCategory;
+      const least = isEditable ? findLeastBid(item) : { rate: 0, amount: 0 };
+
+      let bidderCellsHtml = "";
+      item.bidders.forEach((b, i) => {
+        let varianceClass = "";
+        if (isEditable && item.estimate.rate > 0 && b.rate > 0) {
+          const ratio = b.rate / item.estimate.rate;
+          if (ratio < lower) varianceClass = "bg-blue-100";
+          else if (ratio > upper) varianceClass = "bg-orange-100";
+        }
+        const rateInput = isEditable
+          ? `<input type="number" class="rate-input ${varianceClass}" value="${b.rate || 0}"
+                 data-row-index="${rowIndex}" data-bidder-index="${i}"
+                 onchange="handleRateChange(this, '${sheetName}')" />`
+          : `<span class="val">${formatCurrency(b.rate || 0)}</span>`;
+
+        bidderCellsHtml += `
+          <td class="compact-cell">
+            <span class="label">Rate</span>${rateInput}
+            <span class="label">Amt</span><span class="val">${formatCurrency(b.amount || 0)}</span>
+          </td>`;
+      });
+
+      tr.innerHTML = `
+        <td class="sticky-col-1 col-slno">${item.slNo || ""}</td>
+        <td class="sticky-col-2 col-desc">${item.description || ""}</td>
+        <td>${item.unit || ""}</td>
+        <td class="amount-cell">${item.qty || ""}</td>
+        <td class="compact-cell">
+          <span class="label">Rate</span><span class="val">${formatCurrency(item.estimate.rate || 0)}</span>
+          <span class="label">Amt</span><span class="val">${formatCurrency(item.estimate.amount || 0)}</span>
+        </td>
+        ${bidderCellsHtml}
+        <td class="compact-cell least-rate-cell">
+          <span class="label">Rate</span><span class="val">${formatCurrency(least.rate)}</span>
+          <span class="label">Amt</span><span class="val">${formatCurrency(least.amount)}</span>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  // ---------- UTILS ----------
+  function handleRateChange(input, sheetName) {
+    const rowIndex = parseInt(input.dataset.rowIndex);
+    const bidderIndex = parseInt(input.dataset.bidderIndex);
+    const newRate = parseFloat(input.value) || 0;
+    if (consolidatedData[sheetName]?.[rowIndex]) {
+      consolidatedData[sheetName][rowIndex].bidders[bidderIndex].rate = newRate;
+    }
+    calculateAllTotals();
+    const activeTab = document.querySelector(".tab-button.active").dataset.sheet;
+    renderTableForSheet(activeTab);
+
+    setTimeout(() => {
+      const selector = `#tables-container input[data-row-index="${rowIndex}"][data-bidder-index="${bidderIndex}"]`;
+      const el = document.querySelector(selector);
+      if (el) {
+        el.focus();
+        el.setSelectionRange(el.value.length, el.value.length);
+      }
+    }, 0);
+  }
+
+  function findLeastBid(item) {
+    if (!item.bidders || item.bidders.length === 0 || !item.qty) return { rate: 0, amount: 0 };
+    const validBids = item.bidders.filter((b) => b.rate > 0);
+    if (validBids.length === 0) return { rate: 0, amount: 0 };
+    const minBid = validBids.reduce((min, current) => (current.rate < min.rate ? current : min), validBids[0]);
+    return { rate: minBid.rate, amount: minBid.rate * item.qty };
+  }
+
+  function getConfigForSheet(sheetName, isEstimate) {
+    const configSet = isEstimate ? ESTIMATE_CONFIG : DATA_CONFIG;
+    for (const key in configSet) {
+      if (sheetName.includes(key)) return configSet[key];
+    }
+    return DEFAULT_BOQ_CONFIG; // fallback for unknown sheet names
+  }
+
+  function getVarianceThresholds() {
+    const lower = parseFloat(document.getElementById("lower-variance").value) || 0.8;
+    const upper = parseFloat(document.getElementById("upper-variance").value) || 1.2;
+    return { lower, upper };
+  }
+
+  function parseQty(value) {
+    if (typeof value === "string" && value.toUpperCase() === "QRO") return 0;
+    const num = parseFloat(value);
+    // round to 3 decimals to kill 0.019999... tails
+    return isNaN(num) ? 0 : Math.round((num + Number.EPSILON) * 1e3) / 1e3;
+  }
+
+  function formatCurrency(num) {
+    if (typeof num !== "number" || !isFinite(num)) return "0";
+    return new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(Math.round(num));
+  }
+
+  // ---------- EXCEL EXPORT ----------
+  async function handleDownloadExcelJS() {
+    const defaultProject =
+      "Proposed Industrial Building for M/s DGG Exports Pvt. Ltd At Shiggaon, Karnataka";
+    const projectNameInput = prompt("Enter Project Name:", defaultProject);
+    if (projectNameInput === null) return;
+    const projectName = (projectNameInput || defaultProject).trim();
+
+    const lowerEl = document.getElementById("lower-variance");
+    const upperEl = document.getElementById("upper-variance");
+    const currentLower = parseFloat(lowerEl?.value) || 0.8;
+    const currentUpper = parseFloat(upperEl?.value) || 1.2;
+
+    const varianceInput = prompt(
+      'Enter variance thresholds as "lower,upper"\nExample: 0.80, 1.20',
+      `${currentLower}, ${currentUpper}`
+    );
+    if (varianceInput === null) return;
+
+    let [lStr, uStr] = varianceInput.split(/[,\s]+/).filter(Boolean);
+    let l = parseFloat(lStr),
+      u = parseFloat(uStr);
+    if (!isFinite(l) || !isFinite(u)) {
+      alert("Invalid variance values. Please enter two numbers like: 0.80, 1.20");
+      return;
+    }
+    l = Math.max(0, Math.min(l, 10));
+    u = Math.max(0, Math.min(u, 10));
+    if (l > u) [l, u] = [u, l];
+
+    if (lowerEl) lowerEl.value = l.toFixed(2);
+    if (upperEl) upperEl.value = u.toFixed(2);
+    const lowerLbl = document.getElementById("lower-variance-label");
+    const upperLbl = document.getElementById("upper-variance-label");
+    if (lowerLbl) lowerLbl.textContent = `Low < ${l}`;
+    if (upperLbl) upperLbl.textContent = `High > ${u}`;
+
+    const selectedVarianceLow = l;
+    const selectedVarianceHigh = u;
+
+    const RATE_FMT = "#,##0.00";
+    const AMT_FMT = "#,##0";
+    const GREY_200 = "FFE5E7EB";
+    const HEADER_PEACH = "FFFCE4D6";
+    const TOP_CATEGORY_MIN_HEIGHT = 28;
+    const SPACER_ROW_HEIGHT = 15;
+
+    const isSummary = (n) => n === "Summary";
+    const isSubtotalText = (txt = "") => /sub[\s-]?total/i.test(String(txt));
+    const insertWrapHints = (txt) =>
+      txt == null ? "" : String(txt).replace(/\s+/g, " ").replace(/\//g, "/\u200b").replace(/-/g, "-\u200b").trim();
+    const formatSrNo = (val) => (val == null ? "" : String(val).trim());
+
+    const estimateRowHeight = (text, colWidth, lineHeight = 16, min = 18, max = 120) => {
+      const s = (text || "").toString();
+      if (!s) return min;
+      const hardLines = s.split(/\r\n|\n/);
+      const perLineCap = Math.max(1, Math.floor(colWidth * 1.1));
+      let logicalLines = 0;
+      for (const ln of hardLines) logicalLines += Math.max(1, Math.ceil(ln.length / perLineCap));
+      return Math.min(max, Math.max(min, logicalLines * lineHeight));
+    };
+
+    const workbook = new ExcelJS.Workbook();
+    const sheetsToDownload = processedSheetNames.filter(
+      (name) => consolidatedData[name] && consolidatedData[name].length > 0
+    );
+
+    // <<< PLACE YOUR BASE64 LOGO HERE >>> e.g. "data:image/png;base64,AAAA..."
+      const ANP_LOGO_BASE64 = "data:image/jpeg;base64,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"
 
 
+    let logoId = null;
+    if (ANP_LOGO_BASE64 && ANP_LOGO_BASE64.includes("base64")) {
+      logoId = workbook.addImage({
+        base64: ANP_LOGO_BASE64.replace(/^data:image\/(png|jpeg);base64,/, ""),
+        extension: ANP_LOGO_BASE64.includes("png") ? "png" : "jpeg"
+      });
+    }
+
+    for (const sheetName of sheetsToDownload) {
+      const sheet = workbook.addWorksheet(sheetName.substring(0, 31));
+      const spacerRowNumbers = new Set();
+
+      sheet.mergeCells("A1", "D1");
+      sheet.getCell("A1").value = `Project  : ${projectName}`;
+      sheet.getCell("A1").font = { bold: true };
+      sheet.getCell("A1").alignment = { horizontal: "left", vertical: "middle" };
+      sheet.mergeCells("A2", "D2");
+      sheet.getCell("A2").value = `Scope : Civil Works`;
+      sheet.getCell("A2").font = { bold: true };
+      sheet.getCell("A2").alignment = { horizontal: "left", vertical: "middle" };
+
+      sheet.getCell("E1").value = `Low: ${selectedVarianceLow}`;
+      sheet.getCell("E1").fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFBFD7EA" } };
+      sheet.getCell("F1").value = `High: ${selectedVarianceHigh}`;
+      sheet.getCell("F1").fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFD2B3" } };
+      sheet.getCell("E2").value = `Date: ${new Date().toLocaleDateString()}`;
+      sheet.getCell("F2").value = `Rev: R0`;
+      sheet.getRow(1).height = 48;
+      sheet.getRow(2).height = 44;
+      sheet.getColumn("E").width = 18;
+      sheet.getColumn("F").width = 18;
+      sheet.getColumn("G").width = 20;
+
+      if (logoId) {
+        sheet.addImage(logoId, { tl: { col: 6.8, row: 0.2 }, ext: { width: 95, height: 95 } });
+      }
+
+      if (isSummary(sheetName)) {
+        sheet.addRow([]);
+        const headers = ["Sl. No", "Description", "Estimate", ...bidderNames, "Least Amount"];
+        const headerRow = sheet.addRow(headers);
+        headerRow.font = { bold: true, color: { argb: "FF000000" } };
+        headerRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: HEADER_PEACH } };
+        headerRow.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+        headerRow.height = 28;
+
+        sheet.getColumn(1).width = 14;
+        sheet.getColumn(1).numFmt = "@"; // TEXT
+        sheet.getColumn(2).width = 60;
+        for (let c = 3; c <= 3 + bidderNames.length; c++) {
+          sheet.getColumn(c).width = 18;
+          sheet.getColumn(c).numFmt = AMT_FMT;
+        }
+        const lastCol = 4 + bidderNames.length;
+        sheet.getColumn(lastCol).width = 18;
+        sheet.getColumn(lastCol).numFmt = AMT_FMT;
+
+        const rows = consolidatedData.Summary || [];
+        rows.forEach((row) => {
+          const xlsRow = sheet.addRow([
+            formatSrNo(row.slNo ?? ""),
+            insertWrapHints(row.description || ""),
+            row.estimateAmount || 0,
+            ...(row.bidderAmounts || Array(bidderNames.length).fill(0)),
+            row.leastAmount || 0
+          ]);
+
+          // ⬆ alignment: make every cell top-aligned (numbers right-aligned)
+          xlsRow.getCell(1).numFmt = "@";
+          xlsRow.getCell(1).alignment = { horizontal: "left", vertical: "top", wrapText: true };
+          xlsRow.getCell(2).alignment = { horizontal: "left", vertical: "top", wrapText: true };
+          for (let c = 3; c <= lastCol; c++) {
+            xlsRow.getCell(c).alignment = { vertical: "top", horizontal: "right" };
+          }
+          xlsRow.height = Math.max(28, estimateRowHeight(xlsRow.getCell(2).value, 60));
+
+          if (row.kind === "category" || row.kind === "subtotal" || row.kind === "grand") {
+            xlsRow.font = { bold: true };
+            xlsRow.eachCell({ includeEmpty: true }, (cell) => {
+              cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: GREY_200 } };
+              // ⬆ keep vertical TOP on special rows too
+              cell.alignment = { ...cell.alignment, vertical: "top" };
+            });
+          }
+        });
+        sheet.views = [{ state: "frozen", ySplit: 4 }];
+      } else {
+        sheet.addRow([]);
+        const h1 = sheet.addRow([
+          "Sl. No.",
+          "Description of Items",
+          "Unit",
+          "Estimated",
+          null,
+          null,
+          ...bidderNames.flatMap((name) => [name, null]),
+          "Least Bid",
+          null
+        ]);
+        const h2 = sheet.addRow([
+          null,
+          null,
+          null,
+          "Qty",
+          "Rate",
+          "Amount",
+          ...Array(bidderNames.length + 1)
+            .fill(null)
+            .flatMap(() => ["Rate", "Amount"])
+        ]);
+
+        sheet.mergeCells("D4:F4");
+        bidderNames.forEach((_, i) => sheet.mergeCells(4, 7 + i * 2, 4, 8 + i * 2));
+        sheet.mergeCells(4, 7 + bidderNames.length * 2, 4, 8 + bidderNames.length * 2);
+
+        [h1, h2].forEach((r) => {
+          r.font = { bold: true, color: { argb: "FF000000" } };
+          r.fill = { type: "pattern", pattern: "solid", fgColor: { argb: HEADER_PEACH } };
+          r.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+          r.height = 28;
+        });
+
+        const descWidth = 72;
+        [14, descWidth, 10, 12, 12, 14, ...bidderNames.flatMap(() => [12, 14]), 12, 14].forEach(
+          (w, i) => (sheet.getColumn(i + 1).width = w)
+        );
+
+        sheet.getColumn(1).numFmt = "@"; // Sr. No as TEXT
+
+        const seenTopCategories = new Set();
+
+        consolidatedData[sheetName].forEach((item) => {
+          const slNoStr = formatSrNo(item.slNo);
+          const topKey = String(item.slNo).split('.')[0];
+          const isTopCategory =
+            item.isCategory && /^\d+(?:\.0+)?$/.test(String(item.slNo)) && !seenTopCategories.has(topKey);
+          const leastBid = findLeastBid(item);
+          const isEditable = !item.isSubtotal && !item.isGrandTotal && !item.isCategory;
+
+          const newRow = sheet.addRow([
+            slNoStr,
+            insertWrapHints(item.description),
+            item.unit,
+            item.qty ?? null,
+            isEditable ? item.estimate.rate : null,
+            item.estimate.amount,
+            ...item.bidders.flatMap((b) => [isEditable ? b.rate : null, b.amount]),
+            isEditable ? leastBid.rate : null,
+            isEditable ? leastBid.amount : null
+          ]);
+
+          // ⬆ alignment: every cell in detail rows is top-aligned
+          newRow.getCell(1).numFmt = "@";
+          newRow.getCell(1).alignment = { vertical: "top", horizontal: "left", wrapText: true };
+          newRow.getCell(2).alignment = { vertical: "top", horizontal: "left", wrapText: true };
+          newRow.getCell(3).alignment = { vertical: "top", horizontal: "center", wrapText: true };
+          newRow.getCell(4).alignment = { vertical: "top", horizontal: "right" };
+          newRow.getCell(4).numFmt = AMT_FMT;
+          newRow.getCell(5).alignment = { vertical: "top", horizontal: "right" };
+          newRow.getCell(5).numFmt = RATE_FMT;
+          newRow.getCell(6).alignment = { vertical: "top", horizontal: "right" };
+          newRow.getCell(6).numFmt = AMT_FMT;
+
+          for (let i = 0; i < bidderNames.length; i++) {
+            newRow.getCell(7 + i * 2).alignment = { vertical: "top", horizontal: "right" };
+            newRow.getCell(7 + i * 2).numFmt = RATE_FMT;
+            newRow.getCell(8 + i * 2).alignment = { vertical: "top", horizontal: "right" };
+            newRow.getCell(8 + i * 2).numFmt = AMT_FMT;
+          }
+          const leastStartCol = 7 + bidderNames.length * 2;
+          newRow.getCell(leastStartCol).alignment = { vertical: "top", horizontal: "right" };
+          newRow.getCell(leastStartCol).numFmt = RATE_FMT;
+          newRow.getCell(leastStartCol + 1).alignment = { vertical: "top", horizontal: "right" };
+          newRow.getCell(leastStartCol + 1).numFmt = AMT_FMT;
+
+          // variance color
+          item.bidders.forEach((b, i) => {
+            if (item.estimate.rate && b.rate) {
+              const variance = b.rate / item.estimate.rate;
+              const rateCell = newRow.getCell(7 + i * 2);
+              if (variance < selectedVarianceLow) {
+                rateCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFBFD7EA" } };
+              } else if (variance > selectedVarianceHigh) {
+                rateCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFD2B3" } };
+              }
+            }
+          });
+
+          const isSubtotal = item.isSubtotal || isSubtotalText(item.description);
+          if (isSubtotal || item.isGrandTotal || isTopCategory) {
+            newRow.font = { bold: true };
+            newRow.eachCell({ includeEmpty: true }, (cell) => {
+              cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: GREY_200 } };
+              // ⬆ keep vertical TOP on special rows too
+              cell.alignment = { ...cell.alignment, vertical: "top" };
+            });
+            newRow.height = Math.max(estimateRowHeight(item.description, descWidth), TOP_CATEGORY_MIN_HEIGHT);
+            if (isTopCategory) seenTopCategories.add(String(item.slNo));
+            if (isSubtotal) {
+              const spacer = sheet.addRow([]);
+              spacer.height = SPACER_ROW_HEIGHT;
+              spacerRowNumbers.add(spacer.number);
+            }
+          } else {
+            newRow.height = estimateRowHeight(item.description, descWidth);
+          }
+        });
+        sheet.views = [{ state: "frozen", ySplit: 5 }];
+      }
+
+      // Borders for non-spacer rows
+      sheet.eachRow((row) => {
+        if (spacerRowNumbers.has(row.number)) return;
+        row.eachCell({ includeEmpty: true }, (cell) => {
+          cell.border = {
+            top: { style: "thin" },
+            left: { style: "thin" },
+            bottom: { style: "thin" },
+            right: { style: "thin" }
+          };
+          if (cell.value == null) cell.value = "";
+        });
+      });
+    }
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    saveAs(
+      new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
+      "DGG_Civil_CS_Consolidated_Output.xlsx"
+    );
+  }
+  window.handleDownloadExcelJS = handleDownloadExcelJS;
+</script>
 
 
-
-    </script>
-  </body>
+</body>
 </html>
