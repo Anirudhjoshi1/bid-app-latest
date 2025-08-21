@@ -215,6 +215,61 @@
 
   <!-- ====== JAVASCRIPT LOGIC ====== -->
 <script>
+
+  // ---- compatibility layer ----
+const EXCLUDE_SHEETS = [/^summary$/i, /^measure/i]; // skip tabs you don’t want
+
+const HEADER_SYNONYMS = {
+  slNo:   [/^(s(\.|\/)?\s*)?(item\s*)?no\.?$/i, /^s\s*no/i, /^serial/i, /^item\s*no/i],
+  desc:   [/^description/i, /^item\s*description/i, /^desc$/i],
+  unit:   [/^unit$/i, /^uom$/i, /^units?$/i],
+  qty:    [/^qty$/i, /^quantity$/i, /^qtty$/i],
+  rate:   [/^rate$/i, /^unit\s*rate$/i, /^quoted\s*rate$/i, /^basic\s*rate$/i],
+  amount: [/^amount$/i, /^amt$/i, /^total$/i, /^line\s*amount$/i]
+};
+
+function looksLike(name, patterns){ return patterns.some(re => re.test(String(name||"").trim())); }
+
+function inferSheetConfigFromWorksheet(worksheet) {
+  const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: false, defval: "" });
+  let headerRow = -1, cols = {};
+  for (let r = 0; r < Math.min(20, rows.length); r++) {
+    const row = rows[r] || [];
+    const found = {};
+    for (let c = 0; c < row.length; c++) {
+      const cell = String(row[c]).trim();
+      if (!cell) continue;
+      if (looksLike(cell, HEADER_SYNONYMS.slNo))   found.slNoCol   = c;
+      if (looksLike(cell, HEADER_SYNONYMS.desc))   found.descCol   = c;
+      if (looksLike(cell, HEADER_SYNONYMS.unit))   found.unitCol   = c;
+      if (looksLike(cell, HEADER_SYNONYMS.qty))    found.qtyCol    = c;
+      if (looksLike(cell, HEADER_SYNONYMS.rate))   found.rateCol   = c;
+      if (looksLike(cell, HEADER_SYNONYMS.amount)) found.amountCol = c;
+    }
+
+    // ✅ we minimally require Sl.No + Description
+    if (found.slNoCol != null && found.descCol != null) {
+      // ✅ amount-only: no Rate header but there *is* Amount → use Amount as Rate + assume Qty=1
+      if (found.rateCol == null && found.amountCol != null) {
+        found.rateCol = found.amountCol;
+        found.assumeQty1 = true;
+        found.amountAsRate = true;
+      }
+      headerRow = r; cols = found; break;
+    }
+  }
+  if (headerRow >= 0) return { startRow: headerRow + 1, ...cols };
+  return DEFAULT_BOQ_CONFIG;
+}
+
+
+
+
+
+
+
+
+
   // ---------- CONFIGURATION ----------
   const DEFAULT_BOQ_CONFIG = { startRow: 5, slNoCol: 0, descCol: 1, unitCol: 2, qtyCol: 3, rateCol: 4, amountCol: 5 };
   const DATA_CONFIG = {
@@ -289,176 +344,218 @@
   }
 
   // Read Excel using formatted cell text to avoid 4.010999999 tails, and keep blanks as ""
-  function parseExcelFile(file, isEstimate) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        try {
-          const workbook = XLSX.read(e.target.result, { type: "binary" });
-          const parsedSheets = {};
-          workbook.SheetNames.forEach((sheetName) => {
-            if (sheetName.toLowerCase() === "summary") return;
-            const config = getConfigForSheet(sheetName, isEstimate);
-            if (config) {
-              const worksheet = workbook.Sheets[sheetName];
-              const jsonData = XLSX.utils.sheet_to_json(worksheet, {
-                header: 1,
-                range: config.startRow - 1,
-                raw: false,   // <- use formatted text (fixes 99999 tails)
-                defval: ""    // <- avoid undefined holes
-              });
-              parsedSheets[sheetName] = jsonData;
-            }
-          });
-          resolve(parsedSheets);
-        } catch (err) {
-          reject(err);
-        }
-      };
-      reader.onerror = reject;
-      reader.readAsBinaryString(file);
-    });
-  }
+function parseExcelFile(file, isEstimate) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const workbook = XLSX.read(new Uint8Array(e.target.result), { type: "array" });
+        const parsed = {};
+        workbook.SheetNames.forEach((sheetName) => {
+          if (EXCLUDE_SHEETS.some(re => re.test(sheetName))) return;
 
-  // Normalize and compare Sr. No. values (treat "1", "1.0", "1.00" the same)
+          const worksheet = workbook.Sheets[sheetName];
+          if (!worksheet) return;
+
+          const explicit = getConfigForSheet(sheetName, isEstimate);
+          const cfg = explicit || inferSheetConfigFromWorksheet(worksheet);
+
+          const rows = XLSX.utils.sheet_to_json(worksheet, {
+            header: 1,
+            range: Math.max(0, (cfg.startRow ?? 1) - 1),
+            raw: false,
+            defval: ""
+          });
+
+          // ✅ keep the detected config with the rows
+          rows._cfg = cfg;
+          parsed[sheetName] = rows;
+        });
+        resolve(parsed);
+      } catch (err) { reject(err); }
+    };
+    reader.onerror = reject;
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+
+
   function normalizeSrNo(value) {
-    const s = String(value ?? "").trim();
-    if (!s) return "";
-    const only = s.replace(/[^\d.]/g, "");
-    if (!only) return "";
-    if (only.includes(".")) {
-      let t = only.replace(/(?:\.0+)$|(?<=\.\d*[1-9])0+$/g, "");
-      if (t.endsWith(".")) t = t.slice(0, -1);
-      return t;
-    }
-    return only.replace(/^0+/, "") || "0";
-  }
+  const s = String(value ?? "").trim();
+  if (!s) return "";
+  const cleaned = s.replace(/[^\d.]/g, "");         // keep digits and dots only
+  if (!cleaned) return "";
+  if (!cleaned.includes("."))                       // pure integer
+    return cleaned.replace(/^0+/, "") || "0";
+  const [intPart, decPartRaw] = cleaned.split(".");
+  const dec = (decPartRaw || "").replace(/[^0-9]/g, "");
+  // integers like "1.0/1.00" collapse to "1"; otherwise preserve decimals EXACTLY (keep 1.10 ≠ 1.1)
+  if (dec && /^0+$/.test(dec)) return (intPart.replace(/^0+/, "") || "0");
+  return `${intPart.replace(/^0+/, "") || "0"}.${dec}`;
+}
 
-  function consolidateAllData(estimateData, biddersData) {
-    consolidatedData = {};
-    for (const sheetName in estimateData) {
-      const estimateConfig = getConfigForSheet(sheetName, true);
-      const bidderConfig = getConfigForSheet(sheetName, false);
-      if (!estimateConfig || !bidderConfig) continue;
+function consolidateAllData(estimateData, biddersData) {
+  consolidatedData = {};
+  for (const sheetName in estimateData) {
+    const estimateRows = estimateData[sheetName];
+    if (!estimateRows) continue;
 
-      consolidatedData[sheetName] = estimateData[sheetName]
-        .map((row) => {
-          const slNoRaw = row[estimateConfig.slNoCol];
-          const slNo = String(slNoRaw || "").trim();
-          const description = row[estimateConfig.descCol] || "";
-          if (!slNo && !description) return null;
+    const estimateConfig =
+      (estimateRows && estimateRows._cfg) ||
+      getConfigForSheet(sheetName, true) ||
+      DEFAULT_BOQ_CONFIG;
 
-          const isTopCategory = /^\d+(?:\.0+)?$/.test(slNo);
+    consolidatedData[sheetName] = estimateRows
+      .map((row) => {
+        const slNoRaw = row[estimateConfig.slNoCol];
+        const slNo = String(slNoRaw || "").trim();
+        const description = row[estimateConfig.descCol] || "";
+        if (!slNo && !description) return null;
 
-          const item = {
-            slNo,
-            description,
-            unit: row[estimateConfig.unitCol] || "",
-            qty: parseQty(row[estimateConfig.qtyCol]),
-            estimate: { rate: parseNumber(row[estimateConfig.rateCol]), amount: 0 },
-            bidders: [],
-            isSubtotal: description.toLowerCase().includes("sub-total"),
-            isGrandTotal:
-              description.toUpperCase().includes("GRAND TOTAL") ||
-              description.toUpperCase().includes("TOTAL AMOUNT"),
-            isCategory: isTopCategory
-          };
+        // --- helpers ---
+        function parseNumber(v) {
+          if (v === null || typeof v === "undefined") return 0;
+          const num = parseFloat(String(v).replace(/,/g, ""));
+          return isNaN(num) ? 0 : num;
+        }
 
-           function parseNumber(value) {
-      if (value === null || typeof value === 'undefined') return 0;
-      const num = parseFloat(String(value).replace(/,/g, ''));
-      return isNaN(num) ? 0 : num;
-    }
+        // ✅ qty: for amount-only sheets assume 1
+        let qty = parseQty(estimateConfig.qtyCol != null ? row[estimateConfig.qtyCol] : "");
+        if (estimateConfig.assumeQty1) qty = 1;
 
-          // match bidder row by normalized Sr. No.
-          const estimateKey = normalizeSrNo(slNo);
-          biddersData.forEach((bidder, index) => {
-            const bidderSheet = bidder[sheetName];
-            let bidderRate = 0;
-            if (bidderSheet) {
+        // ✅ rate: for amount-only sheets read from Amount column
+        const estimateRate = estimateConfig.amountAsRate
+          ? parseNumber(row[estimateConfig.amountCol])
+          : parseNumber(row[estimateConfig.rateCol]);
 
-              const match = bidderSheet.find((bRow) => {
-                const bidderKey = normalizeSrNo(bRow[bidderConfig.slNoCol]);
-                return bidderKey && bidderKey === estimateKey;
-              });
-              if (match) bidderRate = parseNumber(match[bidderConfig.rateCol]) || 0;
+        const isTopCategory = /^\d+(?:\.0+)?$/.test(slNo);
+
+        const item = {
+          slNo,
+          description,
+          unit: row[estimateConfig.unitCol] || "",
+          qty,
+          estimate: { rate: estimateRate, amount: 0 },
+          bidders: [],
+          isSubtotal: description.toLowerCase().includes("sub-total"),
+          isGrandTotal:
+            description.toUpperCase().includes("GRAND TOTAL") ||
+            description.toUpperCase().includes("TOTAL AMOUNT"),
+          isCategory: isTopCategory
+        };
+
+        const estimateKey = normalizeSrNo(slNo);
+
+        // ✅ bidders: if their sheet is amount-only, read bidder rate from Amount and still multiply by our qty
+        biddersData.forEach((bidder, index) => {
+          const bidderSheet = bidder[sheetName];
+          let bidderRate = 0;
+          if (bidderSheet) {
+            const bidderConfig =
+              (bidderSheet && bidderSheet._cfg) ||
+              getConfigForSheet(sheetName, false) ||
+              estimateConfig;
+
+            const match = bidderSheet.find((bRow) => {
+              const bidderKey = normalizeSrNo(bRow[bidderConfig.slNoCol]);
+              return bidderKey && bidderKey === estimateKey;
+            });
+
+            if (match) {
+              const useAmount = bidderConfig.amountAsRate || (bidderConfig.rateCol == null && bidderConfig.amountCol != null);
+              bidderRate = parseNumber(useAmount ? match[bidderConfig.amountCol] : match[bidderConfig.rateCol]) || 0;
             }
-            item.bidders.push({ name: bidderNames[index], rate: bidderRate, amount: 0 });
-          });
+          }
+          item.bidders.push({ name: bidderNames[index], rate: bidderRate, amount: 0 });
+        });
 
-          return item;
-        })
-        .filter(Boolean);
-    }
-    calculateAllTotals();
+        return item;
+      })
+      .filter(Boolean);
   }
+  calculateAllTotals();
+}
 
-  function calculateAllTotals() {
-    let summarySheetData = {};
 
-    for (const sheetName of Object.keys(consolidatedData)) {
-      const sheetData = consolidatedData[sheetName];
+function calculateAllTotals() {
+  let summarySheetData = {};
 
-      // Row amounts
-      sheetData.forEach((item) => {
-        if (!item.isSubtotal && !item.isGrandTotal && !item.isCategory) {
-          item.bidders.forEach((bidder) => (bidder.amount = item.qty * bidder.rate));
-          item.estimate.amount = item.qty * item.estimate.rate;
-        }
-      });
+  for (const sheetName of Object.keys(consolidatedData)) {
+    const sheetData = consolidatedData[sheetName];
 
-      // Subtotals within sections
-      let currentSubTotal = { estimate: 0, bidders: Array(bidderNames.length).fill(0) };
-      sheetData.forEach((item) => {
-        if (item.isCategory) {
-          currentSubTotal = { estimate: 0, bidders: Array(bidderNames.length).fill(0) };
-        } else if (item.isSubtotal) {
-          item.estimate.amount = currentSubTotal.estimate;
-          item.bidders.forEach((b, i) => (b.amount = currentSubTotal.bidders[i]));
-          currentSubTotal = { estimate: 0, bidders: Array(bidderNames.length).fill(0) };
-        } else if (!item.isGrandTotal) {
-          currentSubTotal.estimate += item.estimate.amount;
-          item.bidders.forEach((b, i) => (currentSubTotal.bidders[i] += b.amount));
-        }
-      });
-
-      // Category totals (sum items like 1.01, 1.02 ... to fill row "1 Earth Work")
-      const categoryTotalsMap = {};
-      sheetData.forEach((item) => {
-        if (item.slNo && String(item.slNo).includes(".") && !item.isCategory) {
-          const key = String(item.slNo).split(".")[0]; // "1" from "1.02"
-          if (!categoryTotalsMap[key]) categoryTotalsMap[key] = { estimate: 0, bidders: Array(bidderNames.length).fill(0) };
-          categoryTotalsMap[key].estimate += item.estimate.amount;
-          item.bidders.forEach((b, i) => (categoryTotalsMap[key].bidders[i] += b.amount));
-        }
-      });
-
-      // Put totals onto header rows "1", "2", "3"...
-      sheetData.forEach((item) => {
-        const key = normalizeSrNo(item.slNo);
-        if (item.isCategory && categoryTotalsMap[key]) {
-          item.estimate.amount = categoryTotalsMap[key].estimate;
-          item.bidders.forEach((b, i) => (b.amount = categoryTotalsMap[key].bidders[i]));
-        }
-      });
-
-      // Grand total from category totals
-      const grand = { estimate: 0, bidders: Array(bidderNames.length).fill(0) };
-      Object.values(categoryTotalsMap).forEach((sub) => {
-        grand.estimate += sub.estimate;
-        grand.bidders.forEach((_, i) => (grand.bidders[i] += sub.bidders[i]));
-      });
-      const grandRow = sheetData.find((i) => i.isGrandTotal);
-      if (grandRow) {
-        grandRow.estimate.amount = grand.estimate;
-        grandRow.bidders.forEach((b, i) => (b.amount = grand.bidders[i]));
+    // Row amounts
+    sheetData.forEach((item) => {
+      if (!item.isSubtotal && !item.isGrandTotal && !item.isCategory) {
+        item.bidders.forEach((bidder) => (bidder.amount = item.qty * bidder.rate));
+        item.estimate.amount = item.qty * item.estimate.rate;
       }
+    });
 
-      summarySheetData[sheetName] = { estimateAmount: grand.estimate, bidderAmounts: grand.bidders };
+    // Subtotals within sections
+    let currentSubTotal = { estimate: 0, bidders: Array(bidderNames.length).fill(0) };
+    sheetData.forEach((item) => {
+      if (item.isCategory) {
+        currentSubTotal = { estimate: 0, bidders: Array(bidderNames.length).fill(0) };
+      } else if (item.isSubtotal) {
+        item.estimate.amount = currentSubTotal.estimate;
+        item.bidders.forEach((b, i) => (b.amount = currentSubTotal.bidders[i]));
+        currentSubTotal = { estimate: 0, bidders: Array(bidderNames.length).fill(0) };
+      } else if (!item.isGrandTotal) {
+        currentSubTotal.estimate += item.estimate.amount;
+        item.bidders.forEach((b, i) => (currentSubTotal.bidders[i] += b.amount));
+      }
+    });
+
+    // Category totals (sum 1.01, 1.02 … into header "1")
+    const categoryTotalsMap = {};
+    sheetData.forEach((item) => {
+      if (item.slNo && String(item.slNo).includes(".") && !item.isCategory) {
+        const key = String(item.slNo).split(".")[0];
+        if (!categoryTotalsMap[key]) categoryTotalsMap[key] = { estimate: 0, bidders: Array(bidderNames.length).fill(0) };
+        categoryTotalsMap[key].estimate += item.estimate.amount;
+        item.bidders.forEach((b, i) => (categoryTotalsMap[key].bidders[i] += b.amount));
+      }
+    });
+
+    sheetData.forEach((item) => {
+      const key = normalizeSrNo(item.slNo);
+      if (item.isCategory && categoryTotalsMap[key]) {
+        item.estimate.amount = categoryTotalsMap[key].estimate;
+        item.bidders.forEach((b, i) => (b.amount = categoryTotalsMap[key].bidders[i]));
+      }
+    });
+
+    // Robust grand total (even if no explicit “GRAND TOTAL” row)
+    const grand = { estimate: 0, bidders: Array(bidderNames.length).fill(0) };
+    sheetData.forEach((item) => {
+      const isDetail = !item.isSubtotal && !item.isGrandTotal && !item.isCategory;
+      if (isDetail) {
+        grand.estimate += (item.estimate.amount || 0);
+        item.bidders.forEach((b, i) => (grand.bidders[i] += (b.amount || 0)));
+      }
+    });
+
+    let grandRow = sheetData.find((i) => i.isGrandTotal);
+    if (!grandRow) {
+      grandRow = {
+        slNo: "", description: "GRAND TOTAL", unit: "", qty: "",
+        estimate: { rate: 0, amount: 0 },
+        bidders: bidderNames.map(n => ({ name: n, rate: 0, amount: 0 })),
+        isSubtotal: false, isGrandTotal: true, isCategory: false
+      };
+      sheetData.push(grandRow);
     }
+    grandRow.estimate.amount = grand.estimate;
+    grandRow.bidders.forEach((b, i) => (b.amount = grand.bidders[i]));
 
-    buildSummarySheet(summarySheetData);
+    // ✅ this belongs INSIDE the loop
+    summarySheetData[sheetName] = { estimateAmount: grand.estimate, bidderAmounts: grand.bidders };
   }
+
+  buildSummarySheet(summarySheetData);
+}
+
 
   function buildSummarySheet(summaryData) {
     const addArr = (a, b) => a.map((v, i) => v + (b[i] || 0));
@@ -765,12 +862,11 @@
   }
 
   function getConfigForSheet(sheetName, isEstimate) {
-    const configSet = isEstimate ? ESTIMATE_CONFIG : DATA_CONFIG;
-    for (const key in configSet) {
-      if (sheetName.includes(key)) return configSet[key];
-    }
-    return DEFAULT_BOQ_CONFIG; // fallback for unknown sheet names
-  }
+  const set = isEstimate ? ESTIMATE_CONFIG : DATA_CONFIG;
+  const lower = String(sheetName || "").toLowerCase();
+  for (const key in set) if (lower.includes(key.toLowerCase())) return set[key];
+  return null; // let the inferer handle unknown sheets
+}
 
   function getVarianceThresholds() {
     const lower = parseFloat(document.getElementById("lower-variance").value) || 0.8;
