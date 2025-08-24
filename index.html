@@ -215,6 +215,94 @@
 
   <!-- ====== JAVASCRIPT LOGIC ====== -->
 <script>
+
+
+// ---- Professional modal flow for export ----
+const defaultProjectName =
+  "Proposed Industrial Building for M/s DGG Exports Pvt. Ltd At Shiggaon, Karnataka";
+
+function openExportModal() {
+  const modal = document.getElementById("export-modal");
+  const lowIn  = document.getElementById("modal-low");
+  const highIn = document.getElementById("modal-high");
+  const projIn = document.getElementById("modal-project");
+  const errBox = document.getElementById("modal-error");
+
+  // prefill from current UI values
+  lowIn.value  = document.getElementById("lower-variance").value || "0.80";
+  highIn.value = document.getElementById("upper-variance").value || "1.20";
+  projIn.value = projIn.value || defaultProjectName;
+
+  errBox.classList.add("hidden");
+  errBox.textContent = "";
+
+  modal.classList.remove("hidden");
+  projIn.focus();
+}
+
+function closeExportModal() {
+  document.getElementById("export-modal").classList.add("hidden");
+}
+
+function showModalError(msg) {
+  const errBox = document.getElementById("modal-error");
+  errBox.textContent = msg;
+  errBox.classList.remove("hidden");
+}
+
+async function submitExportModal() {
+  const projIn   = document.getElementById("modal-project");
+  const lowInput = document.getElementById("modal-low");
+  const highInput= document.getElementById("modal-high");
+
+  let low  = parseFloat(lowInput.value);
+  let high = parseFloat(highInput.value);
+
+  // --- basic validation ---
+  const name = (projIn.value || "").trim();
+  if (!name) return showModalError("Please enter a project name.");
+  if (!isFinite(low) || !isFinite(high)) {
+    return showModalError("Enter valid numbers for variance (e.g., 0.80 and 1.20).");
+  }
+
+  // clamp & normalize
+  low  = Math.max(0, Math.min(low, 10));
+  high = Math.max(0, Math.min(high, 10));
+  if (low > high) [low, high] = [high, low];
+
+  // reflect variance into the on-screen legend/inputs
+  const lowEl  = document.getElementById("lower-variance");
+  const highEl = document.getElementById("upper-variance");
+  if (lowEl)  lowEl.value  = low.toFixed(2);
+  if (highEl) highEl.value = high.toFixed(2);
+  const lowLbl  = document.getElementById("lower-variance-label");
+  const highLbl = document.getElementById("upper-variance-label");
+  if (lowLbl)  lowLbl.textContent  = `Low < ${low.toFixed(2)}`;
+  if (highLbl) highLbl.textContent = `High > ${high.toFixed(2)}`;
+
+  // must have generated a comparison first
+  if (!Array.isArray(processedSheetNames) || processedSheetNames.length === 0) {
+    return showModalError("Generate the comparison first, then export.");
+  }
+
+  // --- kick off the export with the chosen values ---
+   const exportBtn = document.querySelector('#export-modal button[onclick="submitExportModal()"]');
+  try {
+    if (exportBtn) exportBtn.disabled = true;
+    setUiBusy(true);                    // show spinner during export
+    closeExportModal();                 // close the modal right away (optional)
+    await handleDownloadExcelJS(name, low, high);
+  } catch (err) {
+    console.error(err);
+    showModalError("Export failed. See console for details.");
+  } finally {
+    setUiBusy(false);                   // hide spinner
+    if (exportBtn) exportBtn.disabled = false;
+  }
+}
+
+
+
 /* ===================== Compatibility & helpers ===================== */
 const EXCLUDE_SHEETS = [/^summary$/i, /^measure/i];
 
@@ -311,10 +399,42 @@ const bidderFilesInput = document.getElementById("bidder-files");
 const outputSection = document.getElementById("output-section");
 const loader = document.getElementById("loader");
 
-processButton.addEventListener("click", handleProcessFiles);
-downloadButton.addEventListener("click", () => {
-  if (typeof window.handleDownloadExcelJS === "function") window.handleDownloadExcelJS();
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeExportModal();
 });
+
+
+
+function setUiBusy(busy) {
+  // Show/hide the same loader used by "Generate Comparison"
+  loader.classList.toggle("hidden", !busy);
+  // Optionally prevent double clicks
+  processButton.disabled = busy;
+  downloadButton.disabled = busy;
+}
+
+function delayedOpenExportModal(delayMs = 800) {
+  // Make sure data is ready (so we don't show a modal with empty state)
+  if (!Array.isArray(processedSheetNames) || processedSheetNames.length === 0) {
+    alert("Generate the comparison first, then export.");
+    return;
+  }
+
+  setUiBusy(true);                // show spinner
+  requestAnimationFrame(() => {   // ensure the spinner paints
+    setTimeout(() => {            // keep it visible for a short moment
+      setUiBusy(false);           // hide spinner
+      openExportModal();          // then open your modal
+    }, delayMs);
+  });
+}
+
+
+processButton.addEventListener("click", handleProcessFiles);
+
+
+downloadButton.addEventListener("click", () => delayedOpenExportModal(900)); // tweak delay as you like
+
 
 function parseNumber(v) {
   if (v === null || typeof v === "undefined") return 0;
@@ -820,6 +940,7 @@ function renderBoqTable(thead, tbody, data, sheetName) {
     const isEditable = !item.isSubtotal && !item.isGrandTotal && !item.isCategory;
     const least = isEditable ? findLeastBid(item) : { rate: 0, amount: 0 };
 
+    // Build bidder cells (each spans 2 columns)
     let bidderCellsHtml = "";
     item.bidders.forEach((b, i) => {
       let varianceClass = "";
@@ -829,19 +950,16 @@ function renderBoqTable(thead, tbody, data, sheetName) {
         else if (ratio > upper) varianceClass = "bg-orange-100";
       }
 
-      let rateHtml;
-      if (amountOnlySheet) {
-        rateHtml = `<span class="val"></span>`; // blank
-      } else {
-        rateHtml = isEditable
-          ? `<input type="number" class="rate-input ${varianceClass}" value="${b.rate || 0}"
-               data-row-index="${rowIndex}" data-bidder-index="${i}"
-               onchange="handleRateChange(this, '${sheetName}')" />`
-          : `<span class="val">${formatCurrency(b.rate || 0)}</span>`;
-      }
+      const rateHtml = amountOnlySheet
+        ? `<span class="val"></span>`
+        : (isEditable
+            ? `<input type="number" class="rate-input ${varianceClass}" value="${b.rate || 0}"
+                 data-row-index="${rowIndex}" data-bidder-index="${i}"
+                 onchange="handleRateChange(this, '${sheetName}')" />`
+            : `<span class="val">${formatCurrency(b.rate || 0)}</span>`);
 
       bidderCellsHtml += `
-        <td class="compact-cell">
+        <td class="compact-cell" colspan="2">
           <span class="label">Rate</span>${rateHtml}
           <span class="label">Amt</span><span class="val">${formatCurrency(b.amount || 0)}</span>
         </td>`;
@@ -852,12 +970,17 @@ function renderBoqTable(thead, tbody, data, sheetName) {
       <td class="sticky-col-2 col-desc">${item.description || ""}</td>
       <td>${item.unit || ""}</td>
       <td class="amount-cell">${item.qty || ""}</td>
-      <td class="compact-cell">
+
+      <!-- Estimate (2 columns spanned) -->
+      <td class="compact-cell" colspan="2">
         <span class="label">Rate</span><span class="val">${amountOnlySheet ? "" : formatCurrency(item.estimate.rate || 0)}</span>
         <span class="label">Amt</span><span class="val">${formatCurrency(item.estimate.amount || 0)}</span>
       </td>
+
       ${bidderCellsHtml}
-      <td class="compact-cell least-rate-cell">
+
+      <!-- Least Bid (2 columns spanned) -->
+      <td class="compact-cell least-rate-cell" colspan="2">
         <span class="label">Rate</span><span class="val">${amountOnlySheet ? "" : formatCurrency(least.rate)}</span>
         <span class="label">Amt</span><span class="val">${formatCurrency(least.amount)}</span>
       </td>
@@ -865,6 +988,8 @@ function renderBoqTable(thead, tbody, data, sheetName) {
     tbody.appendChild(tr);
   });
 }
+
+
 
 /* ===================== Utils ===================== */
 function handleRateChange(input, sheetName) {
@@ -926,43 +1051,48 @@ function formatCurrency(num) {
 }
 
 /* ===================== Excel export ===================== */
-async function handleDownloadExcelJS() {
-  const defaultProject =
+/* ===================== Excel export ===================== */
+async function handleDownloadExcelJS(projectNameArg, lowArg, highArg) {
+  // --- 1) Gather Project Name + Variance (modal > inputs > defaults) ---
+  const DEFAULT_PROJECT =
     "Proposed Industrial Building for M/s DGG Exports Pvt. Ltd At Shiggaon, Karnataka";
-  const projectNameInput = prompt("Enter Project Name:", defaultProject);
-  if (projectNameInput === null) return;
-  const projectName = (projectNameInput || defaultProject).trim();
 
-  const lowerEl = document.getElementById("lower-variance");
-  const upperEl = document.getElementById("upper-variance");
-  const currentLower = parseFloat(lowerEl?.value) || 0.8;
-  const currentUpper = parseFloat(upperEl?.value) || 1.2;
+  let projectName = (projectNameArg ?? "").trim();
+  if (!projectName) {
+    const modalProject = document.getElementById("modal-project");
+    projectName = (modalProject && modalProject.value.trim()) || DEFAULT_PROJECT;
+  }
 
-  const varianceInput = prompt(
-    'Enter variance thresholds as "lower,upper"\nExample: 0.80, 1.20',
-    `${currentLower}, ${currentUpper}`
-  );
-  if (varianceInput === null) return;
+  let selectedVarianceLow =
+    (typeof lowArg === "number" && isFinite(lowArg)) ?
+      lowArg :
+      (parseFloat(document.getElementById("lower-variance")?.value) || 0.8);
 
-  let [lStr, uStr] = varianceInput.split(/[,\s]+/).filter(Boolean);
-  let l = parseFloat(lStr), u = parseFloat(uStr);
-  if (!isFinite(l) || !isFinite(u)) { alert("Invalid variance values. Please enter two numbers like: 0.80, 1.20"); return; }
-  l = Math.max(0, Math.min(l, 10));
-  u = Math.max(0, Math.min(u, 10));
-  if (l > u) [l, u] = [u, l];
+  let selectedVarianceHigh =
+    (typeof highArg === "number" && isFinite(highArg)) ?
+      highArg :
+      (parseFloat(document.getElementById("upper-variance")?.value) || 1.2);
 
-  if (lowerEl) lowerEl.value = l.toFixed(2);
-  if (upperEl) upperEl.value = u.toFixed(2);
-  const lowerLbl = document.getElementById("lower-variance-label");
-  const upperLbl = document.getElementById("upper-variance-label");
-  if (lowerLbl) lowerLbl.textContent = `Low < ${l}`;
-  if (upperLbl) upperLbl.textContent = `High > ${u}`;
+  // clamp + order
+  selectedVarianceLow  = Math.max(0, Math.min(selectedVarianceLow, 10));
+  selectedVarianceHigh = Math.max(0, Math.min(selectedVarianceHigh, 10));
+  if (selectedVarianceLow > selectedVarianceHigh) {
+    [selectedVarianceLow, selectedVarianceHigh] = [selectedVarianceHigh, selectedVarianceLow];
+  }
 
-  const selectedVarianceLow = l;
-  const selectedVarianceHigh = u;
+  // reflect back into UI labels/inputs
+  const lowEl  = document.getElementById("lower-variance");
+  const highEl = document.getElementById("upper-variance");
+  if (lowEl)  lowEl.value  = selectedVarianceLow.toFixed(2);
+  if (highEl) highEl.value = selectedVarianceHigh.toFixed(2);
+  const lowLbl  = document.getElementById("lower-variance-label");
+  const highLbl = document.getElementById("upper-variance-label");
+  if (lowLbl)  lowLbl.textContent  = `Low < ${selectedVarianceLow}`;
+  if (highLbl) highLbl.textContent = `High > ${selectedVarianceHigh}`;
 
+  // --- 2) Formatting/constants for Excel ---
   const RATE_FMT = "#,##0.00";
-  const AMT_FMT = "#,##0";
+  const AMT_FMT  = "#,##0";
   const GREY_200 = "FFE5E7EB";
   const HEADER_PEACH = "FFFCE4D6";
   const TOP_CATEGORY_MIN_HEIGHT = 28;
@@ -970,7 +1100,11 @@ async function handleDownloadExcelJS() {
 
   const isSummary = (n) => n === "Summary";
   const isSubtotalText = (txt = "") => /sub[\s-]?total/i.test(String(txt));
-  const insertWrapHints = (txt) => txt == null ? "" : String(txt).replace(/\s+/g, " ").replace(/\//g, "/\u200b").replace(/-/g, "-\u200b").trim();
+  const insertWrapHints = (txt) =>
+    txt == null ? "" : String(txt).replace(/\s+/g, " ")
+                                .replace(/\//g, "/\u200b")
+                                .replace(/-/g, "-\u200b")
+                                .trim();
   const formatSrNo = (val) => (val == null ? "" : String(val).trim());
 
   const estimateRowHeight = (text, colWidth, lineHeight = 16, min = 18, max = 120) => {
@@ -983,17 +1117,21 @@ async function handleDownloadExcelJS() {
     return Math.min(max, Math.max(min, logicalLines * lineHeight));
   };
 
+  // --- 3) Build workbook ---
   const workbook = new ExcelJS.Workbook();
+
+  // Only export sheets that actually have data
   const sheetsToDownload = processedSheetNames.filter(
     (name) => consolidatedData[name] && consolidatedData[name].length > 0
   );
 
+  // Optional logo (leave empty if you don't have one)
   const ANP_LOGO_BASE64 = "";
   let logoId = null;
   if (ANP_LOGO_BASE64 && ANP_LOGO_BASE64.includes("base64")) {
     logoId = workbook.addImage({
       base64: ANP_LOGO_BASE64.replace(/^data:image\/(png|jpeg);base64,/, ""),
-      extension: ANP_LOGO_BASE64.includes("png") ? "png" : "jpeg"
+      extension: ANP_LOGO_BASE64.includes("png") ? "png" : "jpeg",
     });
   }
 
@@ -1001,21 +1139,24 @@ async function handleDownloadExcelJS() {
     const sheet = workbook.addWorksheet(sheetName.substring(0, 31));
     const spacerRowNumbers = new Set();
 
+    // Header block (project, scope, variance, meta)
     sheet.mergeCells("A1", "D1");
     sheet.getCell("A1").value = `Project  : ${projectName}`;
     sheet.getCell("A1").font = { bold: true };
     sheet.getCell("A1").alignment = { horizontal: "left", vertical: "middle" };
+
     sheet.mergeCells("A2", "D2");
-    sheet.getCell("A2").value = `Scope : Civil Works`;
+    sheet.getCell("A2").value = "Scope : Civil Works";
     sheet.getCell("A2").font = { bold: true };
     sheet.getCell("A2").alignment = { horizontal: "left", vertical: "middle" };
 
     sheet.getCell("E1").value = `Low: ${selectedVarianceLow}`;
-    sheet.getCell("E1").fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFBFD7EA" } };
+    sheet.getCell("E1").fill  = { type: "pattern", pattern: "solid", fgColor: { argb: "FFBFD7EA" } };
     sheet.getCell("F1").value = `High: ${selectedVarianceHigh}`;
-    sheet.getCell("F1").fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFD2B3" } };
+    sheet.getCell("F1").fill  = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFD2B3" } };
     sheet.getCell("E2").value = `Date: ${new Date().toLocaleDateString()}`;
-    sheet.getCell("F2").value = `Rev: R0`;
+    sheet.getCell("F2").value = "Rev: R0";
+
     sheet.getRow(1).height = 48;
     sheet.getRow(2).height = 44;
     sheet.getColumn("E").width = 18;
@@ -1026,8 +1167,10 @@ async function handleDownloadExcelJS() {
       sheet.addImage(logoId, { tl: { col: 6.8, row: 0.2 }, ext: { width: 95, height: 95 } });
     }
 
+    // ---------- SUMMARY ----------
     if (isSummary(sheetName)) {
       sheet.addRow([]);
+
       const headers = ["Sl. No", "Description", "Estimate", ...bidderNames, "Least Amount"];
       const headerRow = sheet.addRow(headers);
       headerRow.font = { bold: true, color: { argb: "FF000000" } };
@@ -1035,16 +1178,13 @@ async function handleDownloadExcelJS() {
       headerRow.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
       headerRow.height = 28;
 
-      sheet.getColumn(1).width = 14;
-      sheet.getColumn(1).numFmt = "@";
+      sheet.getColumn(1).width = 14;  sheet.getColumn(1).numFmt = "@";
       sheet.getColumn(2).width = 60;
       for (let c = 3; c <= 3 + bidderNames.length; c++) {
-        sheet.getColumn(c).width = 18;
-        sheet.getColumn(c).numFmt = AMT_FMT;
+        sheet.getColumn(c).width = 18; sheet.getColumn(c).numFmt = AMT_FMT;
       }
       const lastCol = 4 + bidderNames.length;
-      sheet.getColumn(lastCol).width = 18;
-      sheet.getColumn(lastCol).numFmt = AMT_FMT;
+      sheet.getColumn(lastCol).width = 18; sheet.getColumn(lastCol).numFmt = AMT_FMT;
 
       const rows = consolidatedData.Summary || [];
       rows.forEach((row) => {
@@ -1053,13 +1193,15 @@ async function handleDownloadExcelJS() {
           insertWrapHints(row.description || ""),
           row.estimateAmount || 0,
           ...(row.bidderAmounts || Array(bidderNames.length).fill(0)),
-          row.leastAmount || 0
+          row.leastAmount || 0,
         ]);
 
         xlsRow.getCell(1).numFmt = "@";
         xlsRow.getCell(1).alignment = { horizontal: "left", vertical: "top", wrapText: true };
         xlsRow.getCell(2).alignment = { horizontal: "left", vertical: "top", wrapText: true };
-        for (let c = 3; c <= lastCol; c++) xlsRow.getCell(c).alignment = { vertical: "top", horizontal: "right" };
+        for (let c = 3; c <= lastCol; c++) {
+          xlsRow.getCell(c).alignment = { vertical: "top", horizontal: "right" };
+        }
         xlsRow.height = Math.max(28, estimateRowHeight(xlsRow.getCell(2).value, 60));
 
         if (row.kind === "category" || row.kind === "subtotal" || row.kind === "grand") {
@@ -1070,121 +1212,150 @@ async function handleDownloadExcelJS() {
           });
         }
       });
+
       sheet.views = [{ state: "frozen", ySplit: 4 }];
-    } else {
-      sheet.addRow([]);
-      const h1 = sheet.addRow([
-        "Sl. No.","Description of Items","Unit","Estimated",null,null,
-        ...bidderNames.flatMap((name) => [name, null]),"Least Bid",null
-      ]);
-      const h2 = sheet.addRow([
-        null,null,null,"Qty","Rate","Amount",
-        ...Array(bidderNames.length + 1).fill(null).flatMap(() => ["Rate","Amount"])
-      ]);
 
-      sheet.mergeCells("D4:F4");
-      bidderNames.forEach((_, i) => sheet.mergeCells(4, 7 + i * 2, 4, 8 + i * 2));
-      sheet.mergeCells(4, 7 + bidderNames.length * 2, 4, 8 + bidderNames.length * 2);
+        // ✅ add borders for Summary before leaving this branch
+  sheet.eachRow((row) => {
+    row.eachCell({ includeEmpty: true }, (cell) => {
+      cell.border = {
+        top: { style: "thin" },
+        left: { style: "thin" },
+        bottom: { style: "thin" },
+        right: { style: "thin" },
+      };
+      if (cell.value == null) cell.value = "";
+    });
+  });
 
-      [h1, h2].forEach((r) => {
-        r.font = { bold: true, color: { argb: "FF000000" } };
-        r.fill = { type: "pattern", pattern: "solid", fgColor: { argb: HEADER_PEACH } };
-        r.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-        r.height = 28;
-      });
-
-      const descWidth = 72;
-      [14, descWidth, 10, 12, 12, 14, ...bidderNames.flatMap(() => [12, 14]), 12, 14]
-        .forEach((w, i) => (sheet.getColumn(i + 1).width = w));
-      sheet.getColumn(1).numFmt = "@";
-
-      const isAmtOnlySheet = !!(consolidatedData[sheetName]?._isAmountOnly);
-
-      const seenTop = new Set();
-      consolidatedData[sheetName].forEach((item) => {
-        const slNoStr = formatSrNo(item.slNo);
-        const topKey = String(item.slNo).split('.')[0];
-        const isTopCategory = item.isCategory && /^\d+(?:\.0+)?$/.test(String(item.slNo)) && !seenTop.has(topKey);
-        const leastBid = findLeastBid(item);
-        const isEditable = !item.isSubtotal && !item.isGrandTotal && !item.isCategory;
-
-        const rowVals = [
-          slNoStr,
-          insertWrapHints(item.description),
-          item.unit,
-          item.qty ?? null,
-          isAmtOnlySheet ? null : (isEditable ? item.estimate.rate : null),
-          item.estimate.amount,
-          ...item.bidders.flatMap((b) => [isAmtOnlySheet ? null : (isEditable ? b.rate : null), b.amount]),
-          isAmtOnlySheet ? null : leastBid.rate,
-          leastBid.amount
-        ];
-        const newRow = sheet.addRow(rowVals);
-
-        newRow.getCell(1).numFmt = "@";
-        newRow.getCell(1).alignment = { vertical: "top", horizontal: "left", wrapText: true };
-        newRow.getCell(2).alignment = { vertical: "top", horizontal: "left", wrapText: true };
-        newRow.getCell(3).alignment = { vertical: "top", horizontal: "center", wrapText: true };
-        newRow.getCell(4).alignment = { vertical: "top", horizontal: "right" }; newRow.getCell(4).numFmt = AMT_FMT;
-        newRow.getCell(5).alignment = { vertical: "top", horizontal: "right" }; newRow.getCell(5).numFmt = RATE_FMT;
-        newRow.getCell(6).alignment = { vertical: "top", horizontal: "right" }; newRow.getCell(6).numFmt = AMT_FMT;
-
-        for (let i = 0; i < bidderNames.length; i++) {
-          newRow.getCell(7 + i * 2).alignment = { vertical: "top", horizontal: "right" };
-          newRow.getCell(7 + i * 2).numFmt = RATE_FMT;
-          newRow.getCell(8 + i * 2).alignment = { vertical: "top", horizontal: "right" };
-          newRow.getCell(8 + i * 2).numFmt = AMT_FMT;
-        }
-        const leastStartCol = 7 + bidderNames.length * 2;
-        newRow.getCell(leastStartCol).alignment = { vertical: "top", horizontal: "right" };
-        newRow.getCell(leastStartCol).numFmt = RATE_FMT;
-        newRow.getCell(leastStartCol + 1).alignment = { vertical: "top", horizontal: "right" };
-        newRow.getCell(leastStartCol + 1).numFmt = AMT_FMT;
-
-        // variance coloring (skip for amount-only)
-        if (!isAmtOnlySheet) {
-          item.bidders.forEach((b, i) => {
-            if (item.estimate.rate && b.rate) {
-              const variance = b.rate / item.estimate.rate;
-              const rateCell = newRow.getCell(7 + i * 2);
-              if (variance < selectedVarianceLow) {
-                rateCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFBFD7EA" } };
-              } else if (variance > selectedVarianceHigh) {
-                rateCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFD2B3" } };
-              }
-            }
-          });
-        }
-
-        const isSubtotal = item.isSubtotal || isSubtotalText(item.description);
-        if (isSubtotal || item.isGrandTotal || isTopCategory) {
-          newRow.font = { bold: true };
-          newRow.eachCell({ includeEmpty: true }, (cell) => {
-            cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: GREY_200 } };
-            cell.alignment = { ...cell.alignment, vertical: "top" };
-          });
-          newRow.height = Math.max(estimateRowHeight(item.description, descWidth), TOP_CATEGORY_MIN_HEIGHT);
-          if (isTopCategory) seenTop.add(String(item.slNo));
-          if (isSubtotal) {
-            const spacer = sheet.addRow([]); spacer.height = SPACER_ROW_HEIGHT; spacerRowNumbers.add(spacer.number);
-          }
-        } else {
-          newRow.height = estimateRowHeight(item.description, descWidth);
-        }
-      });
-      sheet.views = [{ state: "frozen", ySplit: 5 }];
+      continue; // next sheet
     }
 
-    // borders
+    // ---------- BOQ SHEETS ----------
+    sheet.addRow([]);
+    const h1 = sheet.addRow([
+      "Sl. No.", "Description of Items", "Unit", "Estimated", null, null,
+      ...bidderNames.flatMap((n) => [n, null]),
+      "Least Bid", null,
+    ]);
+    const h2 = sheet.addRow([
+      null, null, null, "Qty", "Rate", "Amount",
+      ...Array(bidderNames.length + 1).fill(null).flatMap(() => ["Rate", "Amount"]),
+    ]);
+
+    // Merge header cells
+    sheet.mergeCells("D4:F4");
+    bidderNames.forEach((_, i) => sheet.mergeCells(4, 7 + i * 2, 4, 8 + i * 2));
+    sheet.mergeCells(4, 7 + bidderNames.length * 2, 4, 8 + bidderNames.length * 2);
+
+    [h1, h2].forEach((r) => {
+      r.font = { bold: true, color: { argb: "FF000000" } };
+      r.fill = { type: "pattern", pattern: "solid", fgColor: { argb: HEADER_PEACH } };
+      r.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+      r.height = 28;
+    });
+
+    // Column widths
+    const descWidth = 72;
+    [14, descWidth, 10, 12, 12, 14, ...bidderNames.flatMap(() => [12, 14]), 12, 14]
+      .forEach((w, i) => (sheet.getColumn(i + 1).width = w));
+    sheet.getColumn(1).numFmt = "@";
+
+    const isAmtOnlySheet = !!(consolidatedData[sheetName]?._isAmountOnly);
+    const seenTop = new Set();
+
+    consolidatedData[sheetName].forEach((item) => {
+      const slNoStr = formatSrNo(item.slNo);
+      const topKey  = String(item.slNo || "").split(".")[0];
+      const isTopCategory =
+        item.isCategory && /^\d+(?:\.0+)?$/.test(String(item.slNo || "")) && !seenTop.has(topKey);
+
+      const leastBid = findLeastBid(item);
+      const isEditable = !item.isSubtotal && !item.isGrandTotal && !item.isCategory;
+
+      const rowVals = [
+        slNoStr,
+        insertWrapHints(item.description),
+        item.unit,
+        item.qty ?? null,
+        isAmtOnlySheet ? null : (isEditable ? item.estimate.rate : null),
+        item.estimate.amount,
+        ...item.bidders.flatMap((b) => [isAmtOnlySheet ? null : (isEditable ? b.rate : null), b.amount]),
+        isAmtOnlySheet ? null : leastBid.rate,
+        leastBid.amount,
+      ];
+      const newRow = sheet.addRow(rowVals);
+
+      // align/format
+      newRow.getCell(1).numFmt = "@";
+      newRow.getCell(1).alignment = { vertical: "top", horizontal: "left", wrapText: true };
+      newRow.getCell(2).alignment = { vertical: "top", horizontal: "left", wrapText: true };
+      newRow.getCell(3).alignment = { vertical: "top", horizontal: "center", wrapText: true };
+      newRow.getCell(4).alignment = { vertical: "top", horizontal: "right" }; newRow.getCell(4).numFmt = AMT_FMT;
+      newRow.getCell(5).alignment = { vertical: "top", horizontal: "right" }; newRow.getCell(5).numFmt = RATE_FMT;
+      newRow.getCell(6).alignment = { vertical: "top", horizontal: "right" }; newRow.getCell(6).numFmt = AMT_FMT;
+
+      for (let i = 0; i < bidderNames.length; i++) {
+        newRow.getCell(7 + i * 2).alignment = { vertical: "top", horizontal: "right" };
+        newRow.getCell(7 + i * 2).numFmt = RATE_FMT;
+        newRow.getCell(8 + i * 2).alignment = { vertical: "top", horizontal: "right" };
+        newRow.getCell(8 + i * 2).numFmt = AMT_FMT;
+      }
+      const leastStartCol = 7 + bidderNames.length * 2;
+      newRow.getCell(leastStartCol).alignment = { vertical: "top", horizontal: "right" };
+      newRow.getCell(leastStartCol).numFmt = RATE_FMT;
+      newRow.getCell(leastStartCol + 1).alignment = { vertical: "top", horizontal: "right" };
+      newRow.getCell(leastStartCol + 1).numFmt = AMT_FMT;
+
+      // variance shading (skip for amount-only)
+      if (!isAmtOnlySheet) {
+        item.bidders.forEach((b, i) => {
+          if (item.estimate?.rate && b.rate) {
+            const variance = b.rate / item.estimate.rate;
+            const rateCell = newRow.getCell(7 + i * 2);
+            if (variance < selectedVarianceLow) {
+              rateCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFBFD7EA" } };
+            } else if (variance > selectedVarianceHigh) {
+              rateCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFD2B3" } };
+            }
+          }
+        });
+      }
+
+      // category/subtotal/grand styling
+      const isSubtotal = item.isSubtotal || isSubtotalText(item.description);
+      if (isSubtotal || item.isGrandTotal || isTopCategory) {
+        newRow.font = { bold: true };
+        newRow.eachCell({ includeEmpty: true }, (cell) => {
+          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: GREY_200 } };
+          cell.alignment = { ...cell.alignment, vertical: "top" };
+        });
+        newRow.height = Math.max(estimateRowHeight(item.description, descWidth), TOP_CATEGORY_MIN_HEIGHT);
+        if (isTopCategory) seenTop.add(String(item.slNo));
+        if (isSubtotal) {
+          const spacer = sheet.addRow([]); spacer.height = SPACER_ROW_HEIGHT; spacerRowNumbers.add(spacer.number);
+        }
+      } else {
+        newRow.height = estimateRowHeight(item.description, descWidth);
+      }
+    });
+
+    sheet.views = [{ state: "frozen", ySplit: 5 }];
+
+    // borders & blank fill
     sheet.eachRow((row) => {
       if (spacerRowNumbers.has(row.number)) return;
       row.eachCell({ includeEmpty: true }, (cell) => {
-        cell.border = { top:{style:"thin"}, left:{style:"thin"}, bottom:{style:"thin"}, right:{style:"thin"} };
+        cell.border = {
+          top: { style: "thin" }, left: { style: "thin" },
+          bottom: { style: "thin" }, right: { style: "thin" },
+        };
         if (cell.value == null) cell.value = "";
       });
     });
   }
 
+  // --- 4) Save file ---
   const buffer = await workbook.xlsx.writeBuffer();
   saveAs(
     new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
@@ -1192,8 +1363,81 @@ async function handleDownloadExcelJS() {
   );
 }
 window.handleDownloadExcelJS = handleDownloadExcelJS;
+
 </script>
 
+
+
+<!-- Export Options Modal -->
+<!-- Export Options Modal (DARK) -->
+<div id="export-modal" class="fixed inset-0 z-[100] hidden">
+  <!-- backdrop -->
+  <div class="absolute inset-0 bg-black/70" onclick="closeExportModal()"></div>
+
+  <!-- modal -->
+  <div class="absolute inset-0 flex items-center justify-center p-4">
+    <div class="w-full max-w-lg rounded-2xl bg-slate-900 text-gray-100 shadow-2xl border border-slate-700">
+      <!-- header -->
+      <div class="flex items-center justify-between px-6 py-4 border-b border-slate-700">
+        <h3 class="text-lg font-semibold">Export options</h3>
+        <button
+          class="text-gray-400 hover:text-gray-200"
+          onclick="closeExportModal()"
+          aria-label="Close">&times;</button>
+      </div>
+
+      <!-- body -->
+      <div class="px-6 py-4 space-y-5">
+        <!-- Project name -->
+        <div>
+          <label for="modal-project" class="block text-sm font-medium text-gray-300">
+            Project name
+          </label>
+          <input id="modal-project" type="text"
+                 class="mt-1 w-full rounded-lg border border-slate-600 bg-slate-800/70 px-3 py-2
+                        text-gray-100 placeholder-gray-400
+                        focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400"/>
+          <p class="mt-1 text-xs text-gray-400">
+            This appears at the top of every exported sheet.
+          </p>
+        </div>
+
+        <!-- Variance -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label for="modal-low" class="block text-sm font-medium text-gray-300">Lower variance</label>
+            <input id="modal-low" type="number" step="0.01" min="0" max="10"
+                   class="mt-1 w-full rounded-lg border border-slate-600 bg-slate-800/70 px-3 py-2
+                          text-gray-100 placeholder-gray-400
+                          focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400"/>
+            <p class="mt-1 text-xs text-gray-400">e.g. <strong class="text-gray-200">0.80</strong> highlights rates &lt; 80% of estimate.</p>
+          </div>
+          <div>
+            <label for="modal-high" class="block text-sm font-medium text-gray-300">Upper variance</label>
+            <input id="modal-high" type="number" step="0.01" min="0" max="10"
+                   class="mt-1 w-full rounded-lg border border-slate-600 bg-slate-800/70 px-3 py-2
+                          text-gray-100 placeholder-gray-400
+                          focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400"/>
+            <p class="mt-1 text-xs text-gray-400">e.g. <strong class="text-gray-200">1.20</strong> highlights rates &gt; 120% of estimate.</p>
+          </div>
+        </div>
+
+        <!-- Inline validation -->
+        <div id="modal-error"
+             class="hidden rounded-lg bg-red-900/40 border border-red-700 px-3 py-2 text-sm text-red-200"></div>
+      </div>
+
+      <!-- footer -->
+      <div class="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-700">
+        <button class="rounded-lg border border-slate-600 px-4 py-2 text-gray-200 hover:bg-slate-800"
+                onclick="closeExportModal()">Cancel</button>
+        <button class="rounded-lg bg-indigo-600 px-4 py-2 font-semibold text-white hover:bg-indigo-500
+                       disabled:opacity-60 disabled:cursor-not-allowed"
+                onclick="submitExportModal()">Export</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 
 
