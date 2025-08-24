@@ -16,6 +16,17 @@
 
   <!-- ====== FULL CSS (web view fixes) ====== -->
   <style>
+
+    /* 🔴 missing bidder rate (qty > 0 & rate not quoted) */
+.missing-rate {
+  background-color: #7f1d1d !important;  /* red-900-ish */
+  border-color: #ef4444 !important;      /* red-500 */
+  color: #ffffff !important;
+}
+
+/* 0-value text treatment (web) */
+.zero-text { color: #ffffff !important; opacity: .95; }
+.rate-input.zero-value { color: #ffffff !important; }
     /* --- Page base --- */
     body { font-family: "Inter", sans-serif; background: #0f172a; color: #f9fafb; }
 
@@ -898,18 +909,25 @@ function renderSummaryTable(thead, tbody, data) {
     else if (row.kind === "subtotal") tr.className = "subtotal-row";
     else if (row.kind === "grand") tr.className = "grand-total-row";
 
+    const est = row.estimateAmount || 0;
+    const least = row.leastAmount || 0;
+
     tr.innerHTML = `
       <td class="sticky-col-1 col-slno">${row.slNo || ""}</td>
       <td class="sticky-col-2 col-desc">${row.description || ""}</td>
-      <td class="amount-cell">${formatCurrency(row.estimateAmount || 0)}</td>
+      <td class="amount-cell"><span class="${zeroCls(est)}">${formatCurrency(est)}</span></td>
       ${bidderNames
-        .map((_, i) => `<td class="amount-cell">${formatCurrency((row.bidderAmounts || [])[i] || 0)}</td>`)
+        .map((_, i) => {
+          const v = ((row.bidderAmounts || [])[i] || 0);
+          return `<td class="amount-cell"><span class="${zeroCls(v)}">${formatCurrency(v)}</span></td>`;
+        })
         .join("")}
-      <td class="least-amount-cell">${formatCurrency(row.leastAmount || 0)}</td>
+      <td class="least-amount-cell"><span class="${zeroCls(least)}">${formatCurrency(least)}</span></td>
     `;
     tbody.appendChild(tr);
   });
 }
+
 
 function renderBoqTable(thead, tbody, data, sheetName) {
   const amountOnlySheet = !!data._isAmountOnly;
@@ -940,7 +958,7 @@ function renderBoqTable(thead, tbody, data, sheetName) {
     const isEditable = !item.isSubtotal && !item.isGrandTotal && !item.isCategory;
     const least = isEditable ? findLeastBid(item) : { rate: 0, amount: 0 };
 
-    // Build bidder cells (each spans 2 columns)
+    // bidders (each spans 2 columns)
     let bidderCellsHtml = "";
     item.bidders.forEach((b, i) => {
       let varianceClass = "";
@@ -950,44 +968,53 @@ function renderBoqTable(thead, tbody, data, sheetName) {
         else if (ratio > upper) varianceClass = "bg-orange-100";
       }
 
+      // 🔴 missing rate if qty > 0 and rate not quoted
+      const missing = (!amountOnlySheet && isEditable && isPositiveQty(item.qty) && (!b.rate || b.rate === 0));
+
       const rateHtml = amountOnlySheet
-        ? `<span class="val"></span>`
+        ? `<span class="val ${zeroCls(0)}"></span>`
         : (isEditable
-            ? `<input type="number" class="rate-input ${varianceClass}" value="${b.rate || 0}"
-                 data-row-index="${rowIndex}" data-bidder-index="${i}"
-                 onchange="handleRateChange(this, '${sheetName}')" />`
-            : `<span class="val">${formatCurrency(b.rate || 0)}</span>`);
+            ? `<input type="number"
+                     class="rate-input ${varianceClass} ${missing ? "missing-rate" : ""} ${(b.rate||0)===0 ? "zero-value" : ""}"
+                     value="${b.rate || 0}"
+                     data-row-index="${rowIndex}" data-bidder-index="${i}"
+                     onchange="handleRateChange(this, '${sheetName}')" />`
+            : `<span class="val ${zeroCls(b.rate || 0)}">${formatCurrency(b.rate || 0)}</span>`);
 
       bidderCellsHtml += `
         <td class="compact-cell" colspan="2">
           <span class="label">Rate</span>${rateHtml}
-          <span class="label">Amt</span><span class="val">${formatCurrency(b.amount || 0)}</span>
+          <span class="label">Amt</span><span class="val ${zeroCls(b.amount || 0)}">${formatCurrency(b.amount || 0)}</span>
         </td>`;
     });
+
+    const estRate = amountOnlySheet ? "" : formatCurrency(item.estimate.rate || 0);
+    const estAmt = formatCurrency(item.estimate.amount || 0);
 
     tr.innerHTML = `
       <td class="sticky-col-1 col-slno">${item.slNo || ""}</td>
       <td class="sticky-col-2 col-desc">${item.description || ""}</td>
       <td>${item.unit || ""}</td>
-      <td class="amount-cell">${item.qty || ""}</td>
+      <td class="amount-cell ${zeroCls(item.qty || 0)}">${item.qty || ""}</td>
 
-      <!-- Estimate (2 columns spanned) -->
+      <!-- Estimate (2 columns) -->
       <td class="compact-cell" colspan="2">
-        <span class="label">Rate</span><span class="val">${amountOnlySheet ? "" : formatCurrency(item.estimate.rate || 0)}</span>
-        <span class="label">Amt</span><span class="val">${formatCurrency(item.estimate.amount || 0)}</span>
+        <span class="label">Rate</span><span class="val ${zeroCls(item.estimate.rate || 0)}">${amountOnlySheet ? "" : estRate}</span>
+        <span class="label">Amt</span><span class="val ${zeroCls(item.estimate.amount || 0)}">${estAmt}</span>
       </td>
 
       ${bidderCellsHtml}
 
-      <!-- Least Bid (2 columns spanned) -->
+      <!-- Least Bid (2 columns) -->
       <td class="compact-cell least-rate-cell" colspan="2">
-        <span class="label">Rate</span><span class="val">${amountOnlySheet ? "" : formatCurrency(least.rate)}</span>
-        <span class="label">Amt</span><span class="val">${formatCurrency(least.amount)}</span>
+        <span class="label">Rate</span><span class="val ${zeroCls(least.rate)}">${amountOnlySheet ? "" : formatCurrency(least.rate)}</span>
+        <span class="label">Amt</span><span class="val ${zeroCls(least.amount)}">${formatCurrency(least.amount)}</span>
       </td>
     `;
     tbody.appendChild(tr);
   });
 }
+
 
 
 
@@ -1009,6 +1036,10 @@ function handleRateChange(input, sheetName) {
     if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
   }, 0);
 }
+
+function isPositiveQty(q){ return typeof q === "number" && isFinite(q) && q > 0; }
+function zeroCls(v){ return (Number(v) === 0 ? "zero-text" : ""); }
+
 
 function findLeastBid(item) {
   if (!item.bidders || item.bidders.length === 0) return { rate: 0, amount: 0 };
@@ -1308,19 +1339,25 @@ async function handleDownloadExcelJS(projectNameArg, lowArg, highArg) {
       newRow.getCell(leastStartCol + 1).numFmt = AMT_FMT;
 
       // variance shading (skip for amount-only)
-      if (!isAmtOnlySheet) {
-        item.bidders.forEach((b, i) => {
-          if (item.estimate?.rate && b.rate) {
-            const variance = b.rate / item.estimate.rate;
-            const rateCell = newRow.getCell(7 + i * 2);
-            if (variance < selectedVarianceLow) {
-              rateCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFBFD7EA" } };
-            } else if (variance > selectedVarianceHigh) {
-              rateCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFD2B3" } };
-            }
-          }
-        });
-      }
+     item.bidders.forEach((b, i) => {
+  const rateCell = newRow.getCell(7 + i * 2); // define once, always available
+
+  if (item.estimate?.rate && b.rate) {
+    const variance = b.rate / item.estimate.rate;
+    if (variance < selectedVarianceLow) {
+      rateCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFBFD7EA" } };
+    } else if (variance > selectedVarianceHigh) {
+      rateCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFD2B3" } };
+    }
+  }
+
+  // 🔴 missing rate highlight
+  if (isPositiveQty(item.qty) && (!b.rate || b.rate === 0)) {
+    rateCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF7F1D1D" } };
+    rateCell.font = { color: { argb: "FFFFFFFF" }, bold: true };
+  }
+});
+
 
       // category/subtotal/grand styling
       const isSubtotal = item.isSubtotal || isSubtotalText(item.description);
