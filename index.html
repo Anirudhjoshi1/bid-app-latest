@@ -318,12 +318,38 @@ async function submitExportModal() {
 const EXCLUDE_SHEETS = [/^summary$/i, /^measure/i];
 
 const HEADER_SYNONYMS = {
-  slNo:   [/^(s(\.|\/)?\s*)?(item\s*)?no\.?$/i, /^s\s*no/i, /^serial/i, /^item\s*no/i],
+  slNo: [
+    /^(sr|sl)\.?\s*no\.?$/i,          // Sr.No. / Sl.No.
+    /^s\.?\s*no\.?$/i,                // S.No.
+    /^s\s*no/i,
+    /^serial/i,
+    /^(?:item\s*)?no\.?$/i,           // Item No. / No.
+    /^item\s*no/i
+  ],
   desc:   [/^description/i, /^item\s*description/i, /^desc$/i],
   unit:   [/^unit$/i, /^uom$/i, /^units?$/i],
   qty:    [/^qty$/i, /^quantity$/i, /^qtty$/i],
   rate:   [/^rate$/i, /^unit\s*rate$/i, /^quoted\s*rate$/i, /^basic\s*rate$/i],
-  amount: [/^amount$/i, /^amt$/i, /^total$/i, /^line\s*amount$/i]
+  // ⬇️ no bare ^total$ here to avoid matching "TOTAL", "TOTAL QTY", etc.
+  amount: [
+    /^amount(?:\s*\(rs\.?\))?$/i,
+    /^amt\.?$/i,
+    /^line\s*amount$/i,
+    /^total\s*amount$/i,
+    /^amount\s*total$/i
+  ]
+};
+
+
+const MEP_HEADER_SYNONYMS = {
+  gf:            [/^gf$/i, /ground\s*floor/i],
+  oneF:          [/^(1f|1\s*floor)$/i],
+  tf:            [/^(tf|top\s*floor|terrace\s*floor)$/i],
+  tqty:          [/^total\s*q(?:ty)?$/i, /^t\s*qty$/i, /^qty\s*total$/i],
+  supplyRate:    [/^supply\s*rate$/i],
+  labourRate:    [/^labou?r\s*rate$/i],
+  supplyAmount:  [/^supply\s*amount$/i],
+  labourAmount:  [/^labou?r\s*amount$/i],
 };
 
 function looksLike(name, patterns){ return patterns.some(re => re.test(String(name||"").trim())); }
@@ -337,57 +363,141 @@ function normalizeDesc(s){
 
 function inferSheetConfigFromWorksheet(worksheet) {
   const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: false, defval: "" });
-  let headerRow = -1, cols = {};
 
+  // ---- single-row header pass ----
+  let best = null;
+  for (let r = 0; r < Math.min(30, rows.length); r++) {
+    const row = rows[r] || [];
+    const found = {};
+
+    for (let c = 0; c < row.length; c++) {
+      const cell = String(row[c]).trim();
+      if (!cell) continue;
+
+      if (looksLike(cell, HEADER_SYNONYMS.slNo)) found.slNoCol = c;
+      if (looksLike(cell, HEADER_SYNONYMS.desc)) found.descCol = c;
+      if (looksLike(cell, HEADER_SYNONYMS.unit)) found.unitCol = c;
+      if (looksLike(cell, HEADER_SYNONYMS.qty))  found.qtyCol  = c;
+      if (looksLike(cell, HEADER_SYNONYMS.rate)) found.rateCol = c;
+
+      if (looksLike(cell, HEADER_SYNONYMS.amount)) {
+        (found.amountCandidates ||= []).push(c);
+      }
+    }
+    if (found.amountCandidates && found.amountCandidates.length) {
+      found.amountCol = Math.max(...found.amountCandidates); // rightmost "Amount"
+      delete found.amountCandidates;
+    }
+
+    const hasCore   = found.slNoCol != null && found.descCol != null;
+    const hasValues = found.qtyCol != null || found.rateCol != null || found.amountCol != null;
+    if (!hasCore) continue;
+
+    const score =
+      (hasValues ? 10 : 0) +
+      (found.unitCol  != null ? 2 : 0) +
+      (found.qtyCol   != null ? 3 : 0) +
+      (found.rateCol  != null ? 3 : 0) +
+      (found.amountCol!= null ? 3 : 0);
+
+    if (!best || score > best.score) best = { row: r, cols: found, score };
+  }
+
+  // ---- two-row header fallback (row r has Sl.No/Desc; row r+1 has Qty/Rate/Amount) ----
+  if (!best || !(best.cols.qtyCol != null || best.cols.rateCol != null || best.cols.amountCol != null)) {
+    for (let r = 0; r < Math.min(30, rows.length - 1); r++) {
+      const rowA = rows[r] || [];
+      const rowB = rows[r + 1] || [];
+      const A = {}, B = {};
+
+      for (let c = 0; c < rowA.length; c++) {
+        const cell = String(rowA[c]).trim();
+        if (!cell) continue;
+        if (looksLike(cell, HEADER_SYNONYMS.slNo)) A.slNoCol = c;
+        if (looksLike(cell, HEADER_SYNONYMS.desc)) A.descCol = c;
+        if (looksLike(cell, HEADER_SYNONYMS.unit)) A.unitCol = c;
+      }
+      for (let c = 0; c < rowB.length; c++) {
+        const cell = String(rowB[c]).trim();
+        if (!cell) continue;
+        if (looksLike(cell, HEADER_SYNONYMS.qty))    B.qtyCol = c;
+        if (looksLike(cell, HEADER_SYNONYMS.rate))   B.rateCol = c;
+        if (looksLike(cell, HEADER_SYNONYMS.amount)) (B.amountCandidates ||= []).push(c);
+      }
+      if (B.amountCandidates && B.amountCandidates.length) {
+        B.amountCol = Math.max(...B.amountCandidates);
+      }
+
+      const hasCore   = A.slNoCol != null && A.descCol != null;
+      const hasValues = B.qtyCol != null || B.rateCol != null || B.amountCol != null;
+
+      if (hasCore && hasValues) {
+        return { startRow: r + 2, ...A, ...B }; // data starts after the subheader row
+      }
+    }
+  }
+
+  // ---- use best single-row header if we found one ----
+  if (best) {
+    const cols = { ...best.cols };
+
+    // amount-only abstracts (no Rate/Qty but have Amount)
+    if (cols.rateCol == null && cols.amountCol != null && cols.qtyCol == null) {
+      cols.rateCol = cols.amountCol;
+      cols.assumeQty1 = true;
+      cols.amountAsRate = true;
+      cols.amountOnly = true;
+    }
+    return { startRow: best.row + 1, ...cols };
+  }
+
+  // last resort
+  return DEFAULT_BOQ_CONFIG;
+}
+
+
+function inferSheetConfigFromWorksheetMEP(worksheet){
+  const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: false, defval: "" });
+  let headerRow = -1, cols = {};
   for (let r = 0; r < Math.min(20, rows.length); r++) {
     const row = rows[r] || [];
     const found = {};
     for (let c = 0; c < row.length; c++) {
       const cell = String(row[c]).trim();
       if (!cell) continue;
+
       if (looksLike(cell, HEADER_SYNONYMS.slNo))   found.slNoCol   = c;
       if (looksLike(cell, HEADER_SYNONYMS.desc))   found.descCol   = c;
       if (looksLike(cell, HEADER_SYNONYMS.unit))   found.unitCol   = c;
-      if (looksLike(cell, HEADER_SYNONYMS.qty))    found.qtyCol    = c;
-      if (looksLike(cell, HEADER_SYNONYMS.rate))   found.rateCol   = c;
-      if (looksLike(cell, HEADER_SYNONYMS.amount)) found.amountCol = c;
+
+      if (looksLike(cell, MEP_HEADER_SYNONYMS.gf))           found.gfCol = c;
+      if (looksLike(cell, MEP_HEADER_SYNONYMS.oneF))         found.oneFCol = c;
+      if (looksLike(cell, MEP_HEADER_SYNONYMS.tf))           found.tfCol = c;
+      if (looksLike(cell, MEP_HEADER_SYNONYMS.tqty))         found.tqtyCol = c;
+      if (looksLike(cell, MEP_HEADER_SYNONYMS.supplyRate))   found.supplyRateCol = c;
+      if (looksLike(cell, MEP_HEADER_SYNONYMS.labourRate))   found.labourRateCol = c;
+      if (looksLike(cell, MEP_HEADER_SYNONYMS.supplyAmount)) found.supplyAmountCol = c;
+      if (looksLike(cell, MEP_HEADER_SYNONYMS.labourAmount)) found.labourAmountCol = c;
     }
 
-    // Normal BOQ: Sl.No + Description
-    if (found.descCol != null && found.slNoCol != null) {
-      // If no Rate but there is Amount → treat as amount-only rates when needed
-      if (found.rateCol == null && found.amountCol != null) {
-        found.rateCol = found.amountCol;
-        found.assumeQty1 = true;
-        found.amountAsRate = true;
-        found.amountOnly = true;
-      }
-      headerRow = r; cols = found; break;
-    }
-
-    // ABSTRACT-like: Description + Amount only (no Sl.No / Qty / Rate)
-    if (
-      found.descCol != null &&
-      found.amountCol != null &&
-      found.slNoCol == null &&
-      found.qtyCol == null &&
-      found.rateCol == null
-    ) {
-      cols = {
-        ...found,
-        slNoCol: null,
-        qtyCol: null,
-        rateCol: found.amountCol,
-        assumeQty1: true,
-        amountAsRate: true,
-        amountOnly: true
-      };
-      headerRow = r; break;
+    if (found.descCol != null && (found.supplyRateCol != null || found.supplyAmountCol != null || found.tqtyCol != null)) {
+      headerRow = r;
+      return { startRow: headerRow + 1, ...found, isMEP: true };
     }
   }
-  if (headerRow >= 0) return { startRow: headerRow + 1, ...cols };
-  return DEFAULT_BOQ_CONFIG;
+  return null; // not clearly MEP
 }
+
+// Wrapper used by parseExcelFile:
+function inferSheetConfigAuto(worksheet){
+  if (COMPARISON_MODE === 'mep') {
+    const mep = inferSheetConfigFromWorksheetMEP(worksheet);
+    if (mep) return mep;
+  }
+  // fallback to your existing logic
+  return inferSheetConfigFromWorksheet(worksheet);
+}
+
 
 /* ===================== Config ===================== */
 const DEFAULT_BOQ_CONFIG = { startRow: 5, slNoCol: 0, descCol: 1, unitCol: 2, qtyCol: 3, rateCol: 4, amountCol: 5 };
@@ -413,6 +523,17 @@ const loader = document.getElementById("loader");
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") closeExportModal();
 });
+
+
+let COMPARISON_MODE = 'civil'; // or 'mep'
+
+function openModeModal(){ document.getElementById('mode-modal').classList.remove('hidden'); }
+function closeModeModal(){ document.getElementById('mode-modal').classList.add('hidden'); }
+function startProcessing(mode){
+  COMPARISON_MODE = (mode === 'mep') ? 'mep' : 'civil';
+  closeModeModal();
+  handleProcessFiles(); // continues your original flow
+}
 
 
 
@@ -441,7 +562,8 @@ function delayedOpenExportModal(delayMs = 800) {
 }
 
 
-processButton.addEventListener("click", handleProcessFiles);
+processButton.addEventListener("click", openModeModal);
+
 
 
 downloadButton.addEventListener("click", () => delayedOpenExportModal(900)); // tweak delay as you like
@@ -512,7 +634,7 @@ function parseExcelFile(file, isEstimate) {
           if (!worksheet) return;
 
           const explicit = getConfigForSheet(sheetName, isEstimate);
-          const cfg = explicit || inferSheetConfigFromWorksheet(worksheet);
+          const cfg = explicit || inferSheetConfigAuto(worksheet);
 
           const rows = XLSX.utils.sheet_to_json(worksheet, {
             header: 1,
@@ -549,10 +671,10 @@ function consolidateAllData(estimateData, biddersData) {
   consolidatedData = {};
 
   // regex rules: treat "Total Amount ..." as subtotal, keep GRAND TOTAL for real grand total
-  const SUBTOTAL_RE = /sub[\s-]?total/i;
-  const TOTAL_AMOUNT_RE = /^total\s*amount/i;
-  const TOTAL_OF_RE = /^total\s+of/i;
-  const GRAND_RE = /\bgrand\s*total\b|^total\s+including\s+gst/i;
+  const SUBTOTAL_RE      = /sub[\s-]?total/i;
+  const TOTAL_AMOUNT_RE  = /^total\s*amount/i;
+  const TOTAL_OF_RE      = /^total\s+of/i;
+  const GRAND_RE         = /\bgrand\s*total\b|^total\s+including\s+gst/i;
 
   for (const sheetName in estimateData) {
     const estimateRows = estimateData[sheetName];
@@ -563,45 +685,99 @@ function consolidateAllData(estimateData, biddersData) {
       getConfigForSheet(sheetName, true) ||
       DEFAULT_BOQ_CONFIG;
 
-    const isAmountOnly = !!(
-      cfg.amountOnly || cfg.amountAsRate ||
-      (cfg.slNoCol == null && cfg.qtyCol == null && cfg.rateCol === cfg.amountCol)
-    );
+    // In MEP mode we never do "amount-only" interpretation
+    const isAmountOnly =
+      (COMPARISON_MODE === "mep")
+        ? false
+        : !!(
+            cfg.amountOnly ||
+            cfg.amountAsRate ||
+            (cfg.slNoCol == null && cfg.qtyCol == null && cfg.rateCol === cfg.amountCol)
+          );
 
-    const items = estimateRows
+    const items = (estimateRows || [])
       .map((row) => {
         // keep EXACT serial number from file (no auto-fill)
-        const slNoRaw = cfg.slNoCol != null ? row[cfg.slNoCol] : "";
-        const slNo = String(slNoRaw || "").trim();
+        const slNoRaw     = cfg.slNoCol != null ? row[cfg.slNoCol] : "";
+        const slNo        = String(slNoRaw || "").trim();
         const description = row[cfg.descCol] || "";
         if (!slNo && !description) return null;
 
-        // quantity / rate / raw amount
-        let qty = parseQty(cfg.qtyCol != null ? row[cfg.qtyCol] : "");
-        if (cfg.assumeQty1) qty = 1;
+        // ---------- CIVIL vs MEP read ----------
+        let qty = 0;
+        let rateFromFile = 0;
+        let rawAmountFromFile = 0;
 
-        const rateFromFile = cfg.amountAsRate ? parseNumber(row[cfg.amountCol]) : parseNumber(row[cfg.rateCol]);
-        const rawAmountFromFile = isAmountOnly ? parseNumber(row[cfg.amountCol]) : 0;
+        // extras only used by MEP
+        let estSRate=0, estLRate=0, estSAmt=0, estLAmt=0;
+        let gfQty=0, oneFQty=0, tfQty=0;
+
+        if (cfg.isMEP || COMPARISON_MODE === "mep") {
+          // Combined Supply/Labour logic + floor quantities
+          const f = extractMEPFields(row, cfg);
+          qty               = f.qty;
+          rateFromFile      = f.unitRate;     // S+L unit rate (if derivable)
+          rawAmountFromFile = f.amount;       // S+L amount (if present)
+
+          estSRate = f.sRate;  estLRate = f.lRate;
+          estSAmt  = f.sAmt;   estLAmt  = f.lAmt;
+
+          gfQty    = f.gfQty;  oneFQty  = f.oneFQty;  tfQty = f.tfQty;
+        } else {
+          // CIVIL (Qty × Rate)
+          qty = parseQty(cfg.qtyCol != null ? row[cfg.qtyCol] : "");
+          if (cfg.assumeQty1) qty = 1;
+
+          const useAmtAsRate   = cfg.amountAsRate;
+          rateFromFile         = useAmtAsRate ? parseNumber(row[cfg.amountCol]) : parseNumber(row[cfg.rateCol]);
+          rawAmountFromFile    = isAmountOnly ? parseNumber(row[cfg.amountCol]) : 0;
+        }
+        // ---------------------------------------
 
         const item = {
           slNo,
           description,
           unit: row[cfg.unitCol] || "",
           qty,
-          estimate: { rate: isAmountOnly ? 0 : rateFromFile, amount: 0, rawAmount: rawAmountFromFile },
+
+          // MEP extra floor quantities (0 for Civil)
+          gfQty:   gfQty || 0,
+          oneFQty: oneFQty || 0,
+          tfQty:   tfQty || 0,
+
+          // Estimate block (Civil uses rate/amount as before; MEP also stores S/L components)
+          estimate: {
+            rate:      isAmountOnly ? 0 : rateFromFile,
+            amount:    0,                   // will be filled in calculateAllTotals()
+            rawAmount: rawAmountFromFile,   // direct amount from file when present
+
+            // present only in MEP (kept as 0 in Civil)
+            sRate:   estSRate || 0,
+            lRate:   estLRate || 0,
+            sAmount: estSAmt  || 0,
+            lAmount: estLAmt  || 0
+          },
+
           bidders: [],
-          isSubtotal: SUBTOTAL_RE.test(description) || TOTAL_AMOUNT_RE.test(description) || TOTAL_OF_RE.test(description),
+
+          isSubtotal:   SUBTOTAL_RE.test(description) || TOTAL_AMOUNT_RE.test(description) || TOTAL_OF_RE.test(description),
           isGrandTotal: GRAND_RE.test(description),
-          isCategory: !isAmountOnly && /^\d+(?:\.0+)?$/.test(slNo),
-          amountOnly: isAmountOnly
+          isCategory:   !isAmountOnly && /^\d+(?:\.0+)?$/.test(slNo),
+
+          // In MEP, always treat as normal (not amount-only)
+          amountOnly: (COMPARISON_MODE === "mep") ? false : isAmountOnly
         };
 
         const estimateKeySr   = normalizeSrNo(slNo);
         const estimateKeyDesc = normalizeDesc(description);
 
+        // --- attach bidders (match by Sr.No. OR normalized description) ---
         biddersData.forEach((bidder, index) => {
           const bidderSheet = bidder[sheetName];
+
           let bRate = 0, bRawAmt = 0;
+          // MEP components per-bidder
+          let bSRate=0, bLRate=0, bSAmt=0, bLAmt=0;
 
           if (bidderSheet) {
             const bcfg =
@@ -617,16 +793,39 @@ function consolidateAllData(estimateData, biddersData) {
             });
 
             if (match) {
-              const useAmount = bcfg.amountAsRate || (bcfg.rateCol == null && bcfg.amountCol != null);
-              if (isAmountOnly || useAmount) {
-                bRawAmt = parseNumber(match[bcfg.amountCol]) || 0;
-                bRate = 0;
+              if (bcfg.isMEP || COMPARISON_MODE === "mep") {
+                const f = extractMEPFields(match, bcfg);
+                bRawAmt = f.amount;        // S+L total amount if present/derivable
+                bRate   = f.unitRate;      // S+L unit rate if present/derivable
+
+                // keep components (used by MEP table/export)
+                bSRate = f.sRate;  bLRate = f.lRate;
+                bSAmt  = f.sAmt;   bLAmt  = f.lAmt;
               } else {
-                bRate = parseNumber(match[bcfg.rateCol]) || 0;
+                // Civil
+                const useAmount = bcfg.amountAsRate || (bcfg.rateCol == null && bcfg.amountCol != null);
+                if (isAmountOnly || useAmount) {
+                  bRawAmt = parseNumber(match[bcfg.amountCol]) || 0;
+                  bRate   = 0;
+                } else {
+                  bRate   = parseNumber(match[bcfg.rateCol]) || 0;
+                }
               }
             }
           }
-          item.bidders.push({ name: bidderNames[index], rate: bRate, amount: 0, rawAmount: bRawAmt });
+
+          item.bidders.push({
+            name: bidderNames[index],
+            rate: bRate,
+            amount: 0,        // computed later
+            rawAmount: bRawAmt,
+
+            // MEP components (0 in Civil)
+            sRate:   bSRate || 0,
+            lRate:   bLRate || 0,
+            sAmount: bSAmt  || 0,
+            lAmount: bLAmt  || 0
+          });
         });
 
         return item;
@@ -639,90 +838,192 @@ function consolidateAllData(estimateData, biddersData) {
     consolidatedData[sheetName] = items;
   }
 
+  // compute row amounts, subtotals, totals, summary, etc.
   calculateAllTotals();
 }
 
+
 /* ---------- Totals ---------- */
 function calculateAllTotals() {
-  let summarySheetData = {};
+  // Will be used to construct the Summary sheet after all per-sheet totals are computed
+  const summarySheetData = {};
 
   for (const sheetName of Object.keys(consolidatedData)) {
     const sheetData = consolidatedData[sheetName];
+    if (!Array.isArray(sheetData)) continue;
 
-    // row amounts
+    // ---------- 1) Row amounts ----------
     sheetData.forEach((item) => {
-      if (!item.isSubtotal && !item.isGrandTotal && !item.isCategory) {
-        if (item.amountOnly) {
-          item.estimate.amount = item.estimate.rawAmount || 0;
-          item.bidders.forEach((b) => (b.amount = b.rawAmount || 0));
-        } else {
-          item.estimate.amount = (item.qty || 0) * (item.estimate.rate || 0);
-          item.bidders.forEach((b) => (b.amount = (item.qty || 0) * (b.rate || 0)));
+      if (item.isSubtotal || item.isGrandTotal || item.isCategory) return;
+
+      const isMEPSheet =
+        COMPARISON_MODE === "mep" ||
+        (consolidatedData[sheetName]?._cfg && consolidatedData[sheetName]._cfg.isMEP);
+
+      if (isMEPSheet) {
+        // Ensure Supply/Labour amounts exist (derive from rates × qty when missing)
+        const qty = Number(item.qty || 0);
+
+        // Estimate
+        const estSRate = Number(item.estimate?.sRate || 0);
+        const estLRate = Number(item.estimate?.lRate || 0);
+        let estSAmt     = Number(item.estimate?.sAmount || 0);
+        let estLAmt     = Number(item.estimate?.lAmount || 0);
+
+        if (estSAmt <= 0 && estSRate > 0 && qty > 0) estSAmt = estSRate * qty;
+        if (estLAmt <= 0 && estLRate > 0 && qty > 0) estLAmt = estLRate * qty;
+
+        // Persist the (possibly derived) component amounts
+        item.estimate.sAmount = estSAmt;
+        item.estimate.lAmount = estLAmt;
+
+        // If combined unit rate not provided, derive it when possible
+        if ((!item.estimate.rate || item.estimate.rate === 0)) {
+          const combinedRate = estSRate + estLRate;
+          if (combinedRate > 0) {
+            item.estimate.rate = combinedRate;
+          } else if (qty > 0 && (estSAmt + estLAmt) > 0) {
+            item.estimate.rate = (estSAmt + estLAmt) / qty;
+          }
         }
+
+        // Prefer explicit rawAmount; otherwise use S+L amounts; otherwise qty × rate
+        const estRaw = Number(item.estimate?.rawAmount || 0);
+        if (estRaw > 0) {
+          item.estimate.amount = estRaw;
+        } else if (estSAmt + estLAmt > 0) {
+          item.estimate.amount = estSAmt + estLAmt;
+        } else {
+          item.estimate.amount = qty * Number(item.estimate.rate || 0);
+        }
+
+        // Bidders (do the same per bidder)
+        item.bidders.forEach((b) => {
+          const bSRate = Number(b.sRate || 0);
+          const bLRate = Number(b.lRate || 0);
+          let   bSAmt  = Number(b.sAmount || 0);
+          let   bLAmt  = Number(b.lAmount || 0);
+
+          if (bSAmt <= 0 && bSRate > 0 && qty > 0) bSAmt = bSRate * qty;
+          if (bLAmt <= 0 && bLRate > 0 && qty > 0) bLAmt = bLRate * qty;
+
+          // Persist possibly derived component amounts
+          b.sAmount = bSAmt;
+          b.lAmount = bLAmt;
+
+          // Combined unit rate
+          if ((!b.rate || b.rate === 0)) {
+            const r = bSRate + bLRate;
+            if (r > 0) {
+              b.rate = r;
+            } else if (qty > 0 && (bSAmt + bLAmt) > 0) {
+              b.rate = (bSAmt + bLAmt) / qty;
+            }
+          }
+
+          const bRaw = Number(b.rawAmount || 0);
+          if (bRaw > 0) {
+            b.amount = bRaw;
+          } else if (bSAmt + bLAmt > 0) {
+            b.amount = bSAmt + bLAmt;
+          } else {
+            b.amount = qty * Number(b.rate || 0);
+          }
+        });
+      } else if (item.amountOnly) {
+        // Amount-only (Civil abstracts)
+        item.estimate.amount = Number(item.estimate.rawAmount || 0);
+        item.bidders.forEach((b) => (b.amount = Number(b.rawAmount || 0)));
+      } else {
+        // Normal Civil (Qty × Rate)
+        const qty = Number(item.qty || 0);
+        item.estimate.amount = qty * Number(item.estimate.rate || 0);
+        item.bidders.forEach((b) => (b.amount = qty * Number(b.rate || 0)));
       }
     });
 
-    // rolling subtotals
-    let currentSubTotal = { estimate: 0, bidders: Array(bidderNames.length).fill(0) };
+    // ---------- 2) Rolling subtotals within categories ----------
+    let running = { estimate: 0, bidders: Array(bidderNames.length).fill(0) };
     sheetData.forEach((item) => {
       if (item.isCategory) {
-        currentSubTotal = { estimate: 0, bidders: Array(bidderNames.length).fill(0) };
+        // Reset when a new top-level category header row appears
+        running = { estimate: 0, bidders: Array(bidderNames.length).fill(0) };
       } else if (item.isSubtotal) {
-        item.estimate.amount = currentSubTotal.estimate;
-        item.bidders.forEach((b, i) => (b.amount = currentSubTotal.bidders[i]));
-        currentSubTotal = { estimate: 0, bidders: Array(bidderNames.length).fill(0) };
+        // Write the subtotal to this row and reset
+        item.estimate.amount = running.estimate;
+        item.bidders.forEach((b, i) => (b.amount = running.bidders[i]));
+        running = { estimate: 0, bidders: Array(bidderNames.length).fill(0) };
       } else if (!item.isGrandTotal) {
-        currentSubTotal.estimate += item.estimate.amount || 0;
-        item.bidders.forEach((b, i) => (currentSubTotal.bidders[i] += b.amount || 0));
+        // Accumulate only detail rows
+        running.estimate += Number(item.estimate.amount || 0);
+        item.bidders.forEach((b, i) => (running.bidders[i] += Number(b.amount || 0)));
       }
     });
 
-    // category totals (1.01 + 1.02 → header "1")
-    const categoryTotalsMap = {};
+    // ---------- 3) Category totals (1.01 + 1.02 → header "1") ----------
+    const categoryTotals = {};
     sheetData.forEach((item) => {
-      if (item.slNo && String(item.slNo).includes(".") && !item.isCategory) {
-        const key = String(item.slNo).split(".")[0];
-        if (!categoryTotalsMap[key]) categoryTotalsMap[key] = { estimate: 0, bidders: Array(bidderNames.length).fill(0) };
-        categoryTotalsMap[key].estimate += item.estimate.amount || 0;
-        item.bidders.forEach((b, i) => (categoryTotalsMap[key].bidders[i] += b.amount || 0));
+      const sr = String(item.slNo || "");
+      if (sr.includes(".") && !item.isCategory && !item.isSubtotal && !item.isGrandTotal) {
+        const top = sr.split(".")[0]; // "1" from "1.01"
+        if (!categoryTotals[top]) {
+          categoryTotals[top] = { estimate: 0, bidders: Array(bidderNames.length).fill(0) };
+        }
+        categoryTotals[top].estimate += Number(item.estimate.amount || 0);
+        item.bidders.forEach((b, i) => (categoryTotals[top].bidders[i] += Number(b.amount || 0)));
       }
     });
     sheetData.forEach((item) => {
       const key = normalizeSrNo(item.slNo);
-      if (item.isCategory && categoryTotalsMap[key]) {
-        item.estimate.amount = categoryTotalsMap[key].estimate;
-        item.bidders.forEach((b, i) => (b.amount = categoryTotalsMap[key].bidders[i]));
+      if (item.isCategory && categoryTotals[key]) {
+        item.estimate.amount = categoryTotals[key].estimate;
+        item.bidders.forEach((b, i) => (b.amount = categoryTotals[key].bidders[i]));
       }
     });
 
-    // grand total (robust)
+    // ---------- 4) Grand total ----------
     const grand = { estimate: 0, bidders: Array(bidderNames.length).fill(0) };
     sheetData.forEach((item) => {
       const isDetail = !item.isSubtotal && !item.isGrandTotal && !item.isCategory;
       if (isDetail) {
-        grand.estimate += item.estimate.amount || 0;
-        item.bidders.forEach((b, i) => (grand.bidders[i] += b.amount || 0));
+        grand.estimate += Number(item.estimate.amount || 0);
+        item.bidders.forEach((b, i) => (grand.bidders[i] += Number(b.amount || 0)));
       }
     });
 
-    let grandRow = sheetData.find((i) => i.isGrandTotal);
+    // Ensure a GRAND TOTAL row exists and populate it
+    let grandRow = sheetData.find((r) => r.isGrandTotal);
     if (!grandRow) {
       grandRow = {
-        slNo: "", description: "GRAND TOTAL", unit: "", qty: "",
+        slNo: "",
+        description: "GRAND TOTAL",
+        unit: "",
+        qty: "",
         estimate: { rate: 0, amount: 0 },
-        bidders: bidderNames.map(n => ({ name: n, rate: 0, amount: 0 })),
-        isSubtotal: false, isGrandTotal: true, isCategory: false, amountOnly: sheetData._isAmountOnly
+        bidders: bidderNames.map((n) => ({ name: n, rate: 0, amount: 0 })),
+        isSubtotal: false,
+        isGrandTotal: true,
+        isCategory: false,
+        amountOnly: sheetData._isAmountOnly,
       };
       sheetData.push(grandRow);
     }
     grandRow.estimate.amount = grand.estimate;
     grandRow.bidders.forEach((b, i) => (b.amount = grand.bidders[i]));
 
-    summarySheetData[sheetName] = { estimateAmount: grand.estimate, bidderAmounts: grand.bidders };
+    // Hand the overall totals of this sheet to the Summary builder
+    summarySheetData[sheetName] = {
+      estimateAmount: grand.estimate,
+      bidderAmounts: grand.bidders,
+    };
   }
 
+  // ---------- 5) Build the “Summary” sheet ----------
   buildSummarySheet(summarySheetData);
 }
+
+
+
 
 /* ---------- Summary builder ---------- */
 function buildSummarySheet(summaryData) {
@@ -869,11 +1170,12 @@ function renderTableForSheet(sheetName) {
   const thead = document.createElement("thead");
   const tbody = document.createElement("tbody");
 
-  if (sheetName === "Summary") {
-    renderSummaryTable(thead, tbody, data);
-  } else {
-    renderBoqTable(thead, tbody, data, sheetName);
-  }
+if (sheetName === "Summary") {
+  renderSummaryTable(thead, tbody, data);
+} else {
+  if (COMPARISON_MODE === 'mep') renderBoqTableMEP(thead, tbody, data, sheetName);
+  else renderBoqTable(thead, tbody, data, sheetName); // your existing Civil layout
+}
 
   table.append(thead, tbody);
   viewport.appendChild(table);
@@ -1016,6 +1318,83 @@ function renderBoqTable(thead, tbody, data, sheetName) {
 }
 
 
+function renderBoqTableMEP(thead, tbody, data, sheetName) {
+  // h1: SrNo, Desc, Estimate (colspan 9), Bidder groups (4 each), Least
+  const h1 = document.createElement("tr");
+  h1.innerHTML = `
+    <th rowspan="2" class="sticky-col-1 col-slno">Sr.No.</th>
+    <th rowspan="2" class="sticky-col-2 col-desc">Description of Work</th>
+    <th colspan="9">Estimate</th>
+    ${bidderNames.map((n) => `<th colspan="4">${n}</th>`).join("")}
+    <th rowspan="2">Least Amount</th>
+  `;
+
+  // h2: subheaders under Estimate, then each bidder
+  const h2 = document.createElement("tr");
+  h2.innerHTML = `
+    <th>UNIT</th><th>GF</th><th>1F</th><th>TF</th><th>TOTAL QTY</th>
+    <th>SUPPLY RATE</th><th>LABOUR RATE</th><th>SUPPLY AMOUNT</th><th>LABOUR AMOUNT</th>
+    ${bidderNames.map(() =>
+      `<th>SUPPLY RATE</th><th>LABOUR RATE</th><th>SUPPLY AMOUNT</th><th>LABOUR AMOUNT</th>`
+    ).join("")}
+  `;
+  thead.append(h1, h2);
+
+  const { lower, upper } = getVarianceThresholds();
+
+  data.forEach((item) => {
+    const tr = document.createElement("tr");
+    if (item.isSubtotal) tr.className = "subtotal-row";
+    else if (item.isGrandTotal) tr.className = "grand-total-row";
+    else if (item.isCategory) tr.className = "category-header";
+
+    const isEditable = !item.isSubtotal && !item.isGrandTotal && !item.isCategory;
+    const least = isEditable ? findLeastBid(item) : { amount: 0 };
+
+    // bidder 4 cells each; variance on S+L unit rate
+    let bidderCellsHtml = "";
+    item.bidders.forEach((b) => {
+      const unitEst = Number(item.estimate.sRate || 0) + Number(item.estimate.lRate || 0);
+      const unitBid = Number(b.sRate || 0) + Number(b.lRate || 0);
+      let sClass = "", lClass = "";
+      if (isEditable && unitEst > 0 && unitBid > 0) {
+        const ratio = unitBid / unitEst;
+        if (ratio < lower) { sClass = "bg-blue-100"; lClass = "bg-blue-100"; }
+        else if (ratio > upper) { sClass = "bg-orange-100"; lClass = "bg-orange-100"; }
+      }
+      const missS = isEditable && isPositiveQty(item.qty) && !b.sRate;
+      const missL = isEditable && isPositiveQty(item.qty) && !b.lRate;
+
+      bidderCellsHtml += `
+        <td class="amount-cell"><input type="number" class="rate-input ${sClass} ${missS ? "missing-rate" : ""}" value="${b.sRate || 0}" onchange="this.value=this.value||0;"/></td>
+        <td class="amount-cell"><input type="number" class="rate-input ${lClass} ${missL ? "missing-rate" : ""}" value="${b.lRate || 0}" onchange="this.value=this.value||0;"/></td>
+        <td class="amount-cell"><span class="${zeroCls(b.sAmount||0)}">${formatCurrency(b.sAmount||0)}</span></td>
+        <td class="amount-cell"><span class="${zeroCls(b.lAmount||0)}">${formatCurrency(b.lAmount||0)}</span></td>
+      `;
+    });
+
+    tr.innerHTML = `
+      <td class="sticky-col-1 col-slno">${item.slNo || ""}</td>
+      <td class="sticky-col-2 col-desc">${item.description || ""}</td>
+
+      <!-- Estimate group (9 cols) -->
+      <td>${item.unit || ""}</td>
+      <td class="amount-cell ${zeroCls(item.gfQty||0)}">${item.gfQty || ""}</td>
+      <td class="amount-cell ${zeroCls(item.oneFQty||0)}">${item.oneFQty || ""}</td>
+      <td class="amount-cell ${zeroCls(item.tfQty||0)}">${item.tfQty || ""}</td>
+      <td class="amount-cell ${zeroCls(item.qty||0)}">${item.qty || ""}</td>
+      <td class="amount-cell ${zeroCls(item.estimate.sRate||0)}">${formatRate(item.estimate.sRate||0)}</td>
+      <td class="amount-cell ${zeroCls(item.estimate.lRate||0)}">${formatRate(item.estimate.lRate||0)}</td>
+      <td class="amount-cell ${zeroCls(item.estimate.sAmount||0)}">${formatCurrency(item.estimate.sAmount||0)}</td>
+      <td class="amount-cell ${zeroCls(item.estimate.lAmount||0)}">${formatCurrency(item.estimate.lAmount||0)}</td>
+
+      ${bidderCellsHtml}
+
+      <td class="least-amount-cell"><span class="${zeroCls(least.amount)}">${formatCurrency(least.amount)}</span></td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
 
 
 /* ===================== Utils ===================== */
@@ -1037,21 +1416,56 @@ function handleRateChange(input, sheetName) {
   }, 0);
 }
 
+
+function handleMEPRateChange(input, sheetName, rowIndex, bidderIndex, kind) {
+  const v = parseFloat(input.value) || 0;
+  const item = consolidatedData[sheetName]?.[rowIndex];
+  if (!item) return;
+
+  const b = item.bidders[bidderIndex];
+  if (!b) return;
+
+  if (kind === 's') b.sRate = v; else b.lRate = v;
+
+  // recompute derived fields
+  const qty = Number(item.qty || 0);
+  b.sAmount = Number(b.sRate || 0) * qty;
+  b.lAmount = Number(b.lRate || 0) * qty;
+  b.rate    = Number(b.sRate || 0) + Number(b.lRate || 0);
+  b.amount  = Number(b.sAmount || 0) + Number(b.lAmount || 0);
+
+  // refresh totals + rerender current tab
+  calculateAllTotals();
+  const active = document.querySelector(".tab-button.active")?.dataset.sheet || sheetName;
+  renderTableForSheet(active);
+}
+
+
 function isPositiveQty(q){ return typeof q === "number" && isFinite(q) && q > 0; }
 function zeroCls(v){ return (Number(v) === 0 ? "zero-text" : ""); }
 
 
 function findLeastBid(item) {
-  if (!item.bidders || item.bidders.length === 0) return { rate: 0, amount: 0 };
+  if (!item.bidders || !item.bidders.length) return { rate: 0, amount: 0 };
+
+  // MEP: choose by total (S+L) amount
+  if (COMPARISON_MODE === 'mep' || item.estimate?.sRate || item.estimate?.sAmount) {
+    const valid = item.bidders.filter(b => (Number(b.amount || 0) > 0));
+    if (!valid.length) return { rate: 0, amount: 0 };
+    const min = valid.reduce((m, c) => (c.amount < m.amount ? c : m), valid[0]);
+    return { rate: 0, amount: min.amount };
+  }
+
+  // Civil (original)
   if (item.amountOnly) {
     const valid = item.bidders.filter((b) => b.amount > 0);
-    if (valid.length === 0) return { rate: 0, amount: 0 };
+    if (!valid.length) return { rate: 0, amount: 0 };
     const min = valid.reduce((m, c) => (c.amount < m.amount ? c : m), valid[0]);
     return { rate: 0, amount: min.amount };
   } else {
     if (!item.qty) return { rate: 0, amount: 0 };
     const valid = item.bidders.filter((b) => b.rate > 0);
-    if (valid.length === 0) return { rate: 0, amount: 0 };
+    if (!valid.length) return { rate: 0, amount: 0 };
     const min = valid.reduce((m, c) => (c.rate < m.rate ? c : m), valid[0]);
     return { rate: min.rate, amount: min.rate * item.qty };
   }
@@ -1080,6 +1494,46 @@ function formatCurrency(num) {
   if (typeof num !== "number" || !isFinite(num)) return "0";
   return new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(Math.round(num));
 }
+
+function formatRate(num) {
+  if (typeof num !== "number" || !isFinite(num)) return "0.00";
+  return new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    .format(num);
+}
+
+
+
+function extractMEPFields(row, cfg){
+  const gf  = (cfg.gfCol  != null) ? parseNumber(row[cfg.gfCol])  : 0;
+  const one = (cfg.oneFCol!= null) ? parseNumber(row[cfg.oneFCol]): 0;
+  const tf  = (cfg.tfCol  != null) ? parseNumber(row[cfg.tfCol])  : 0;
+
+  let qty = 0;
+  if (cfg.tqtyCol != null) qty = parseNumber(row[cfg.tqtyCol]);
+  else qty = gf + one + tf;
+
+  const sRate = (cfg.supplyRateCol   != null) ? parseNumber(row[cfg.supplyRateCol])   : 0;
+  const lRate = (cfg.labourRateCol   != null) ? parseNumber(row[cfg.labourRateCol])   : 0;
+  const sAmt  = (cfg.supplyAmountCol != null) ? parseNumber(row[cfg.supplyAmountCol]) : 0;
+  const lAmt  = (cfg.labourAmountCol != null) ? parseNumber(row[cfg.labourAmountCol]) : 0;
+
+  const hasAmt  = (sAmt + lAmt) > 0;
+  const hasRate = (sRate + lRate) > 0;
+
+  // totals (S+L) for convenience
+  let unitRate = 0, amount = 0;
+  if (hasAmt) amount = sAmt + lAmt;
+  if (!hasAmt && hasRate && qty > 0) amount = qty * (sRate + lRate);
+  if (hasRate) unitRate = sRate + lRate;
+  if (!hasRate && qty > 0 && amount > 0) unitRate = amount / qty;
+
+  return {
+    gfQty: gf, oneFQty: one, tfQty: tf, qty,
+    sRate, lRate, sAmt, lAmt,
+    unitRate, amount
+  };
+}
+
 
 /* ===================== Excel export ===================== */
 /* ===================== Excel export ===================== */
@@ -1176,8 +1630,9 @@ async function handleDownloadExcelJS(projectNameArg, lowArg, highArg) {
     sheet.getCell("A1").font = { bold: true };
     sheet.getCell("A1").alignment = { horizontal: "left", vertical: "middle" };
 
-    sheet.mergeCells("A2", "D2");
-    sheet.getCell("A2").value = "Scope : Civil Works";
+  sheet.mergeCells("A2","D2");
+sheet.getCell("A2").value = COMPARISON_MODE === 'mep' ? "Scope : MEP Works" : "Scope : Civil Works";
+
     sheet.getCell("A2").font = { bold: true };
     sheet.getCell("A2").alignment = { horizontal: "left", vertical: "middle" };
 
@@ -1261,6 +1716,177 @@ async function handleDownloadExcelJS(projectNameArg, lowArg, highArg) {
 
       continue; // next sheet
     }
+
+
+  if (!isSummary(sheetName) && COMPARISON_MODE === 'mep') {
+  sheet.addRow([]);
+
+  // --- 2-row header ---
+  const h1 = sheet.addRow([
+    "Sr.No.", "Description of Work",
+    "Estimate", null, null, null, null, null, null, null, null,          // 9 subcols
+    ...bidderNames.flatMap(n => [n, null, null, null]),                   // 4 subcols per bidder
+    "Least Amount"
+  ]);
+
+  const h2 = sheet.addRow([
+    null, null,
+    "UNIT", "GF", "1F", "TF", "TOTAL QTY", "SUPPLY RATE", "LABOUR RATE", "SUPPLY AMOUNT", "LABOUR AMOUNT",
+    ...bidderNames.flatMap(() => ["SUPPLY RATE", "LABOUR RATE", "SUPPLY AMOUNT", "LABOUR AMOUNT"]),
+    null
+  ]);
+
+  // merges: "Estimate" over 9 subcolumns, then each bidder over 4
+  sheet.mergeCells(4, 3, 4, 11);
+  bidderNames.forEach((_, i) => sheet.mergeCells(4, 12 + i*4, 4, 15 + i*4));
+
+  [h1, h2].forEach(r => {
+    r.font = { bold: true, color: { argb: "FF000000" } };
+    r.fill = { type: "pattern", pattern: "solid", fgColor: { argb: HEADER_PEACH } };
+    r.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+    r.height = 28;
+  });
+
+  // widths: SrNo, Desc, then the 9 estimate cols, then per-bidder 4, then Least
+  [14, 90, 10, 10, 10, 10, 12, 12, 12, 14, 14,
+   ...bidderNames.flatMap(() => [12, 12, 14, 14]),
+   16].forEach((w, i) => (sheet.getColumn(i + 1).width = w));
+  sheet.getColumn(1).numFmt = "@";
+
+  const descWidth = 90;                     // for row height calc
+  const seenTop = new Set();
+
+  (consolidatedData[sheetName] || []).forEach(item => {
+    const least = (item.bidders && item.bidders.length)
+      ? (Math.min(...item.bidders.map(b => Number(b.amount || 0)).filter(v => v > 0)) || 0)
+      : 0;
+
+    const row = sheet.addRow([
+      String(item.slNo ?? ""),
+      insertWrapHints(item.description || ""),
+
+      // Estimate 9 subcolumns
+      item.unit || "",
+      item.gfQty || 0,
+      item.oneFQty || 0,
+      item.tfQty || 0,
+      item.qty || 0,
+      item.estimate.sRate || 0,
+      item.estimate.lRate || 0,
+      item.estimate.sAmount || 0,
+      item.estimate.lAmount || 0,
+
+      // Each bidder: S rate, L rate, S amt, L amt
+      ...item.bidders.flatMap(b => [
+        b.sRate || 0, b.lRate || 0, b.sAmount || 0, b.lAmount || 0
+      ]),
+
+      // Least total (S+L)
+      least
+    ]);
+
+    // formats & alignment
+    row.getCell(1).numFmt = "@";
+    row.getCell(1).alignment = { vertical: "top", horizontal: "left", wrapText: true };
+    row.getCell(2).alignment = { vertical: "top", horizontal: "left", wrapText: true };
+
+    // Estimate subcolumns
+    row.getCell(3).alignment = { vertical: "top", horizontal: "center" }; // UNIT
+    [4,5,6,7].forEach(c => { row.getCell(c).alignment = { vertical:"top", horizontal:"right" }; row.getCell(c).numFmt = "#,##0"; });
+    row.getCell(8).alignment = { vertical:"top", horizontal:"right" }; row.getCell(8).numFmt = "#,##0.00"; // S rate
+    row.getCell(9).alignment = { vertical:"top", horizontal:"right" }; row.getCell(9).numFmt = "#,##0.00"; // L rate
+    row.getCell(10).alignment = { vertical:"top", horizontal:"right" }; row.getCell(10).numFmt = "#,##0";  // S amt
+    row.getCell(11).alignment = { vertical:"top", horizontal:"right" }; row.getCell(11).numFmt = "#,##0";  // L amt
+
+    // Bidder groups
+    const startBid = 12;
+    const endBid   = 12 + 4*bidderNames.length - 1;
+    for (let c = startBid; c <= endBid; c++) {
+      const idxInQuad = (c - startBid + 1) % 4; // 1=S rate, 2=L rate, 3=S amt, 0=L amt
+      row.getCell(c).alignment = { vertical: "top", horizontal: "right" };
+      row.getCell(c).numFmt = (idxInQuad === 1 || idxInQuad === 2) ? "#,##0.00" : "#,##0";
+    }
+
+    // Least
+    const leastCol = endBid + 1;
+    row.getCell(leastCol).alignment = { vertical: "top", horizontal: "right" };
+    row.getCell(leastCol).numFmt = "#,##0";
+
+
+    // ===== variance shading for MEP (apply on bidder S & L rate cells) =====
+if (!item.isSubtotal && !item.isGrandTotal && !item.isCategory) {
+  const unitEst = Number(item.estimate.sRate || 0) + Number(item.estimate.lRate || 0);
+
+  for (let i = 0; i < bidderNames.length; i++) {
+    const sCol = 12 + i * 4;      // bidder i SUPPLY RATE column
+    const lCol = sCol + 1;        // bidder i LABOUR  RATE column
+
+    const sRate = Number(row.getCell(sCol).value || 0);
+    const lRate = Number(row.getCell(lCol).value || 0);
+    const unitBid = sRate + lRate;
+
+    // Missing rate (qty>0 but either S or L is zero) -> dark red
+    if (Number(item.qty || 0) > 0 && (sRate === 0 || lRate === 0)) {
+      [sCol, lCol].forEach(c => {
+        const cell = row.getCell(c);
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF7F1D1D" } };
+        cell.font = { color: { argb: "FFFFFFFF" }, bold: true };
+      });
+      continue;
+    }
+
+    // Variance vs combined estimate unit rate (S+L)
+    if (unitEst > 0 && unitBid > 0) {
+      const ratio = unitBid / unitEst;
+      let argb = null;
+      if (ratio < selectedVarianceLow)      argb = "FFBFD7EA"; // low (blue-ish)
+      else if (ratio > selectedVarianceHigh) argb = "FFFFD2B3"; // high (orange-ish)
+
+      if (argb) {
+        [sCol, lCol].forEach(c => {
+          row.getCell(c).fill = { type: "pattern", pattern: "solid", fgColor: { argb } };
+        });
+      }
+    }
+  }
+}
+
+
+    // ----- category / subtotal / grand styling like Civil -----
+    const topKey = String(item.slNo || "").split(".")[0];
+    const isTopCategory =
+      item.isCategory && /^\d+(?:\.0+)?$/.test(String(item.slNo || "")) && !seenTop.has(topKey);
+
+    const isSubtotal = item.isSubtotal || /sub[\s-]?total/i.test(String(item.description || ""));
+
+    if (isSubtotal || item.isGrandTotal || isTopCategory) {
+      row.font = { bold: true };
+      row.eachCell({ includeEmpty: true }, (cell) => {
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: GREY_200 } };
+        cell.alignment = { ...cell.alignment, vertical: "top" };
+      });
+      row.height = Math.max(estimateRowHeight(item.description, descWidth), 28);
+      if (isTopCategory) seenTop.add(topKey);
+    } else {
+      row.height = estimateRowHeight(item.description, descWidth);
+    }
+  });
+
+  // freeze & borders
+  sheet.views = [{ state: "frozen", ySplit: 5 }];
+
+  sheet.eachRow(r => {
+    r.eachCell({ includeEmpty: true }, (cell) => {
+      cell.border = { top:{style:"thin"}, left:{style:"thin"}, bottom:{style:"thin"}, right:{style:"thin"} };
+      if (cell.value == null) cell.value = "";
+    });
+  });
+
+  continue; // go to next sheet
+}
+
+
+
 
     // ---------- BOQ SHEETS ----------
     sheet.addRow([]);
@@ -1393,11 +2019,15 @@ async function handleDownloadExcelJS(projectNameArg, lowArg, highArg) {
   }
 
   // --- 4) Save file ---
-  const buffer = await workbook.xlsx.writeBuffer();
-  saveAs(
-    new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
-    "DGG_Civil_CS_Consolidated_Output.xlsx"
-  );
+const outName = COMPARISON_MODE === 'mep'
+  ? "DGG_MEP_CS_Consolidated_Output.xlsx"
+  : "DGG_Civil_CS_Consolidated_Output.xlsx";
+
+const buffer = await workbook.xlsx.writeBuffer();
+saveAs(
+  new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
+  outName
+);
 }
 window.handleDownloadExcelJS = handleDownloadExcelJS;
 
@@ -1471,6 +2101,30 @@ window.handleDownloadExcelJS = handleDownloadExcelJS;
         <button class="rounded-lg bg-indigo-600 px-4 py-2 font-semibold text-white hover:bg-indigo-500
                        disabled:opacity-60 disabled:cursor-not-allowed"
                 onclick="submitExportModal()">Export</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- Mode Picker Modal -->
+<div id="mode-modal" class="fixed inset-0 z-[90] hidden">
+  <div class="absolute inset-0 bg-black/70" onclick="closeModeModal()"></div>
+  <div class="absolute inset-0 flex items-center justify-center p-4">
+    <div class="w-full max-w-md rounded-2xl bg-slate-900 text-gray-100 shadow-2xl border border-slate-700">
+      <div class="px-6 py-4 border-b border-slate-700">
+        <h3 class="text-lg font-semibold">Choose comparison type</h3>
+        <p class="text-sm text-gray-400 mt-1">Pick the structure that matches your files.</p>
+      </div>
+      <div class="px-6 py-6 grid grid-cols-1 gap-4">
+        <button class="rounded-lg bg-indigo-600 hover:bg-indigo-500 px-4 py-3 font-semibold"
+                onclick="startProcessing('civil')">CIVIL (Qty × Rate = Amount)</button>
+        <button class="rounded-lg bg-emerald-600 hover:bg-emerald-500 px-4 py-3 font-semibold"
+                onclick="startProcessing('mep')">MEP (Supply/Labour Rates & Amounts)</button>
+      </div>
+      <div class="px-6 py-4 border-t border-slate-700 flex justify-end">
+        <button class="rounded-lg border border-slate-600 px-4 py-2 text-gray-200 hover:bg-slate-800"
+                onclick="closeModeModal()">Cancel</button>
       </div>
     </div>
   </div>
