@@ -771,62 +771,71 @@ function consolidateAllData(estimateData, biddersData) {
         const estimateKeySr   = normalizeSrNo(slNo);
         const estimateKeyDesc = normalizeDesc(description);
 
-        // --- attach bidders (match by Sr.No. OR normalized description) ---
-        biddersData.forEach((bidder, index) => {
-          const bidderSheet = bidder[sheetName];
+      // --- attach bidders (match by Sr.No. first; only then fallback by description within the same section) ---
+biddersData.forEach((bidder, index) => {
+  const bidderSheet = bidder[sheetName];
 
-          let bRate = 0, bRawAmt = 0;
-          // MEP components per-bidder
-          let bSRate=0, bLRate=0, bSAmt=0, bLAmt=0;
+  let bRate = 0, bRawAmt = 0;
+  let bSRate=0, bLRate=0, bSAmt=0, bLAmt=0;
 
-          if (bidderSheet) {
-            const bcfg =
-              (bidderSheet && bidderSheet._cfg) ||
-              getConfigForSheet(sheetName, false) ||
-              cfg;
+  if (bidderSheet) {
+    const bcfg =
+      (bidderSheet && bidderSheet._cfg) ||
+      getConfigForSheet(sheetName, false) ||
+      cfg;
 
-            const match = bidderSheet.find((bRow) => {
-              const keySr   = bcfg.slNoCol != null ? normalizeSrNo(bRow[bcfg.slNoCol]) : "";
-              const keyDesc = bcfg.descCol != null ? normalizeDesc(bRow[bcfg.descCol]) : "";
-              return (estimateKeySr && keySr && keySr === estimateKeySr) ||
-                     (estimateKeyDesc && keyDesc && keyDesc === estimateKeyDesc);
-            });
+    const estTopPrefix = (estimateKeySr && estimateKeySr.includes("."))
+      ? estimateKeySr.split(".")[0] + "."
+      : "";
 
-            if (match) {
-              if (bcfg.isMEP || COMPARISON_MODE === "mep") {
-                const f = extractMEPFields(match, bcfg);
-                bRawAmt = f.amount;        // S+L total amount if present/derivable
-                bRate   = f.unitRate;      // S+L unit rate if present/derivable
+    // pass 1: STRICT Sr.No. match (preferred)
+    let match = bidderSheet.find((bRow) => {
+      const keySr = (bcfg.slNoCol != null) ? normalizeSrNo(bRow[bcfg.slNoCol]) : "";
+      return (estimateKeySr && keySr && keySr === estimateKeySr);
+    });
 
-                // keep components (used by MEP table/export)
-                bSRate = f.sRate;  bLRate = f.lRate;
-                bSAmt  = f.sAmt;   bLAmt  = f.lAmt;
-              } else {
-                // Civil
-                const useAmount = bcfg.amountAsRate || (bcfg.rateCol == null && bcfg.amountCol != null);
-                if (isAmountOnly || useAmount) {
-                  bRawAmt = parseNumber(match[bcfg.amountCol]) || 0;
-                  bRate   = 0;
-                } else {
-                  bRate   = parseNumber(match[bcfg.rateCol]) || 0;
-                }
-              }
-            }
-          }
+    // pass 2: controlled description match (only if Sr.No. missing on either side)
+    if (!match && (!estimateKeySr)) {
+      match = bidderSheet.find((bRow) => {
+        const keyDesc = (bcfg.descCol != null) ? normalizeDesc(bRow[bcfg.descCol]) : "";
+        const keySr   = (bcfg.slNoCol  != null) ? normalizeSrNo(bRow[bcfg.slNoCol]) : "";
+        // require same description AND same top-level section if we can tell it
+        if (estimateKeyDesc && keyDesc && keyDesc === estimateKeyDesc) {
+          if (estTopPrefix && keySr) return keySr.startsWith(estTopPrefix);
+          return true; // fall back only when we have no section info at all
+        }
+        return false;
+      });
+    }
 
-          item.bidders.push({
-            name: bidderNames[index],
-            rate: bRate,
-            amount: 0,        // computed later
-            rawAmount: bRawAmt,
+    if (match) {
+      if (bcfg.isMEP || COMPARISON_MODE === "mep") {
+        const f = extractMEPFields(match, bcfg);
+        bRawAmt = f.amount;
+        bRate   = f.unitRate;
+        bSRate = f.sRate;  bLRate = f.lRate;
+        bSAmt  = f.sAmt;   bLAmt  = f.lAmt;
+      } else {
+        const useAmount = bcfg.amountAsRate || (bcfg.rateCol == null && bcfg.amountCol != null);
+        if (isAmountOnly || useAmount) {
+          bRawAmt = parseNumber(match[bcfg.amountCol]) || 0;
+          bRate   = 0;
+        } else {
+          bRate   = parseNumber(match[bcfg.rateCol]) || 0;
+        }
+      }
+    }
+  }
 
-            // MEP components (0 in Civil)
-            sRate:   bSRate || 0,
-            lRate:   bLRate || 0,
-            sAmount: bSAmt  || 0,
-            lAmount: bLAmt  || 0
-          });
-        });
+  item.bidders.push({
+    name: bidderNames[index],
+    rate: bRate,
+    amount: 0,
+    rawAmount: bRawAmt,
+    sRate: bSRate || 0, lRate: bLRate || 0, sAmount: bSAmt || 0, lAmount: bLAmt || 0
+  });
+});
+
 
         return item;
       })
