@@ -773,7 +773,10 @@ async function handleProcessFiles() {
     // const boqSheetNames = Object.keys(estimateData);
     // processedSheetNames = ["Summary", ...boqSheetNames];
 
-    processedSheetNames = ["Summary", ...estimateSheetKeysOrdered];
+    processedSheetNames = [
+  "Summary",
+  ...estimateSheetKeysOrdered.filter((key) => !!estimateData[key])
+];
 
     consolidateAllData(estimateData, biddersData);
 
@@ -806,39 +809,70 @@ function normalizeName(s) {
 
 
 // read excel (formatted text, blanks -> "")
+
+// read excel (formatted text, blanks -> "")
 function parseExcelFile(file, isEstimate) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
+
     reader.onload = (e) => {
       try {
         const workbook = XLSX.read(new Uint8Array(e.target.result), { type: "array" });
         const parsed = {};
+
+        // keep the estimate sheet order from this workbook, but only after filtering
+        const seenEstimateKeys = new Set();
+
         workbook.SheetNames.forEach((sheetName) => {
           const norm = normalizeName(sheetName);
-          sheetDisplayNameMap[norm] = sheetName;               // remember real name
-if (isEstimate) estimateSheetKeysOrdered.push(norm);
-          if (EXCLUDE_SHEETS.some(re => re.test(norm))) return;
+
+          // ⛔ skip summary/measurement tabs entirely
+          if (EXCLUDE_SHEETS.some((re) => re.test(norm))) return;
+
+          // remember original display name (proper case) for UI/Excel
+          sheetDisplayNameMap[norm] = sheetName;
+
+          // for the estimate file, remember order of *only* kept sheets
+          if (isEstimate && !seenEstimateKeys.has(norm)) {
+            seenEstimateKeys.add(norm);
+          }
+
           const worksheet = workbook.Sheets[sheetName];
           if (!worksheet) return;
 
-          const cfg = getConfigForSheet(sheetName, isEstimate) || inferSheetConfigAuto(worksheet);
+          const cfg =
+            getConfigForSheet(sheetName, isEstimate) ||
+            inferSheetConfigAuto(worksheet);
+
           const rows = XLSX.utils.sheet_to_json(worksheet, {
             header: 1,
             range: Math.max(0, (cfg.startRow ?? 1) - 1),
             raw: false,
-            defval: ""
+            defval: "",
           });
           rows._cfg = cfg;
 
-          parsed[norm] = rows; // ← use normalized key
+          parsed[norm] = rows; // store using normalized key
         });
+
+        // update the global order list only after we’ve filtered
+        if (isEstimate) {
+          estimateSheetKeysOrdered = Array.from(seenEstimateKeys);
+        }
+
         resolve(parsed);
-      } catch (err) { reject(err); }
+      } catch (err) {
+        reject(err);
+      }
     };
+
     reader.onerror = reject;
     reader.readAsArrayBuffer(file);
   });
 }
+
+
+
 
 function normalizeSrNo(value) {
   const s = String(value ?? "").trim();
@@ -1304,20 +1338,24 @@ function renderUI() {
 function renderTabs() {
   const tabsContainer = document.getElementById("tabs-container");
   tabsContainer.innerHTML = "";
-  processedSheetNames.forEach((sheetKey) => {
-    const btn = document.createElement("button");
-    btn.textContent = displayNameFor(sheetKey); // exact Excel tab text
-    btn.className =
-      "tab-button border-b-2 border-transparent py-2 px-4 text-sm font-medium text-gray-300 hover:text-gray-100 hover:border-gray-500";
-    btn.dataset.sheet = sheetKey;
-    btn.addEventListener("click", (e) => {
-      document.querySelectorAll(".tab-button").forEach((b) => b.classList.remove("active"));
-      e.target.classList.add("active");
-      renderTableForSheet(sheetKey);
+
+  processedSheetNames
+    .filter((key) => key === "Summary" || consolidatedData[key]) // 👈 guard
+    .forEach((sheetKey) => {
+      const btn = document.createElement("button");
+      btn.textContent = displayNameFor(sheetKey);
+      btn.className =
+        "tab-button border-b-2 border-transparent py-2 px-4 text-sm font-medium text-gray-300 hover:text-gray-100 hover:border-gray-500";
+      btn.dataset.sheet = sheetKey;
+      btn.addEventListener("click", (e) => {
+        document.querySelectorAll(".tab-button").forEach((b) => b.classList.remove("active"));
+        e.target.classList.add("active");
+        renderTableForSheet(sheetKey);
+      });
+      tabsContainer.appendChild(btn);
     });
-    tabsContainer.appendChild(btn);
-  });
 }
+
 
 
 function renderTableForSheet(sheetName) {
