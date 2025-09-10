@@ -53,15 +53,22 @@
     .tab-button.active { border-color: #4f46e5; background-color: #312e81; color: #c7d2fe; font-weight: 600; }
 
     /* --- Scroll wrappers --- */
-    .table-container { position: relative; width: 100%; }
+    .table-container {
+  max-width: 1600px;    /* adjust to your liking (1200–1400px works well) */
+  margin: 0 auto;       /* centers the table */
+  padding: 0 1rem;      /* add side padding */
+  padding-bottom: 100px;
+
+}
     .top-scrollbar {
       overflow-x: auto; overflow-y: hidden; height: 14px; position: sticky; top: 0; z-index: 50;
       background: #111827; border-bottom: 1px solid #374151;
     }
     .top-scrollbar-inner { height: 1px; }
     .table-viewport {
-      max-height: 70vh; overflow: auto; background: #1f2937; border: 1px solid #374151; border-top: 0;
+      max-height: 70vh; overflow: auto; background: transparent; border: 1px solid #374151; border-top: 0;
     }
+    
 
     /* --- Table base --- */
     table { table-layout: fixed; width: max-content; min-width: 100%; border-collapse: collapse; color: #f9fafb; }
@@ -140,6 +147,57 @@
       background-color: #E5E7EB !important;  /* gray-200 */
       border-color: #9CA3AF !important;      /* gray-400 */
     }
+
+
+.file-chip {
+  display: flex; align-items: center; justify-content: space-between;
+  background: #1e293b;
+  color: #f3f4f6;
+  border: 1px solid #4b5563;
+  border-radius: 14px;
+  padding: 8px 14px;
+  font-size: 0.90rem;
+  min-width: 240px;
+  max-width: 340px;
+  margin: 6px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+.file-chip:hover { background: #2c3a52; transform: translateY(-2px); }
+.file-chip .file-info { display: flex; flex-direction: column; gap: 2px; }
+.file-chip .file-name { font-weight: 600; color: #e5e7eb; }
+.file-chip .file-size { font-size: 0.8rem; color: #9ca3af; }
+.file-chip button {
+  background: #ef4444; color: #fff; border: none;
+  border-radius: 6px; padding: 6px 10px;
+  margin-left: 14px; cursor: pointer; font-size: 0.8rem; font-weight: bold;
+  transition: background 0.2s ease;
+}
+.file-chip button:hover { background: #dc2626; }
+
+
+.reload-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid #4b5563;
+  background: #1e293b;
+  color: #f9fafb;
+  font-size: 1rem;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+}
+.reload-btn:hover {
+  background: #374151;
+  border-color: #6366f1;
+  color: #c7d2fe;
+  transform: rotate(90deg);
+}
   </style>
 </head>
 
@@ -151,19 +209,39 @@
     </header>
 
     <!-- Upload Section -->
-    <div id="upload-section" class="bg-gray-800 p-8 rounded-2xl shadow-lg mb-10 border border-gray-700">
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-        <div class="space-y-2">
-          <label for="estimate-file" class="block text-sm font-medium text-gray-200">📄 Estimate File (Baseline)</label>
-          <input type="file" id="estimate-file" accept=".xlsx"
-            class="block w-full text-sm text-gray-200 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:bg-indigo-200/20 file:text-indigo-200 hover:file:bg-indigo-200/30"/>
-        </div>
-        <div class="space-y-2">
-          <label for="bidder-files" class="block text-sm font-medium text-gray-200">👥 Bidder Files (Max 7)</label>
-          <input type="file" id="bidder-files" accept=".xlsx" multiple
-            class="block w-full text-sm text-gray-200 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:bg-violet-200/20 file:text-violet-200 hover:file:bg-violet-200/30"/>
-        </div>
+   <!-- Upload Section -->
+<div id="upload-section" class="bg-gray-800 p-8 rounded-2xl shadow-lg mb-10 border border-gray-700">
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+    <!-- Estimate -->
+    <div class="space-y-2">
+      <label for="estimate-file" class="block text-sm font-medium text-gray-200">📄 Estimate File (Baseline)</label>
+      <input type="file" id="estimate-file" accept=".xlsx"
+        class="block w-full text-sm text-gray-200 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:bg-indigo-200/20 file:text-indigo-200 hover:file:bg-indigo-200/30"/>
+      
+      <!-- Show selected Estimate -->
+      <div class="mt-3">
+        <div class="text-xs text-gray-400 mb-1">Selected:</div>
+        <div id="estimate-file-list" class="flex flex-wrap gap-2"></div>
       </div>
+    </div>
+
+    <!-- Bidders -->
+    <div class="space-y-2">
+      <label for="bidder-files" class="block text-sm font-medium text-gray-200">👥 Bidder Files (Max 7)</label>
+      <input type="file" id="bidder-files" accept=".xlsx" multiple
+        class="block w-full text-sm text-gray-200 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:bg-violet-200/20 file:text-violet-200 hover:file:bg-violet-200/30"/>
+      
+      <!-- Show selected Bidders -->
+      <div class="mt-3">
+        <div class="text-xs text-gray-400 mb-1">
+          Selected Bidders (max 7):
+          <span id="bidder-count" class="text-gray-300">0/7</span>
+        </div>
+        <div id="bidder-file-list" class="flex flex-wrap gap-2"></div>
+      </div>
+    </div>
+  </div>
+
 
       <!-- Variance Controls -->
       <div class="mt-8 grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -178,6 +256,7 @@
           <small class="text-gray-400 mt-1">e.g., 1.2 means +20% above estimate</small>
         </div>
       </div>
+      </div>
 
       <!-- Action Buttons -->
       <div class="mt-10 flex flex-wrap justify-center gap-6">
@@ -189,6 +268,7 @@
           class="bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-6 rounded-lg shadow-md hidden focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
           📥 Download as Excel
         </button>
+            <button id="reload-page" class="reload-btn hidden" title="Reload Page">⟳</button>
       </div>
 
       <!-- Loader -->
@@ -228,21 +308,78 @@
 <script>
 
 
+
+let selectedEstimateFile = null;
+let selectedBidderFiles = [];
+
+const estimateListEl = document.getElementById("estimate-file-list");
+const bidderListEl = document.getElementById("bidder-file-list");
+const bidderCountEl = document.getElementById("bidder-count");
+
+function renderFileLists() {
+  // Estimate
+  estimateListEl.innerHTML = "";
+  if (selectedEstimateFile) {
+    const chip = document.createElement("div");
+    chip.className = "file-chip";
+    chip.innerHTML = `${selectedEstimateFile.name}
+      <button onclick="removeEstimateFile()">×</button>`;
+    estimateListEl.appendChild(chip);
+  }
+
+  // Bidders
+  bidderListEl.innerHTML = "";
+  selectedBidderFiles.forEach((file, idx) => {
+    const chip = document.createElement("div");
+    chip.className = "file-chip";
+    chip.innerHTML = `${file.name}
+      <button onclick="removeBidderFile(${idx})">×</button>`;
+    bidderListEl.appendChild(chip);
+  });
+  bidderCountEl.textContent = `${selectedBidderFiles.length}/7`;
+}
+
+function removeEstimateFile() {
+  selectedEstimateFile = null;
+  document.getElementById("estimate-file").value = "";
+  renderFileLists();
+}
+
+function removeBidderFile(index) {
+  selectedBidderFiles.splice(index, 1);
+  renderFileLists();
+}
+
+document.getElementById("estimate-file").addEventListener("change", (e) => {
+  selectedEstimateFile = e.target.files[0] || null;
+  renderFileLists();
+});
+
+document.getElementById("bidder-files").addEventListener("change", (e) => {
+  const newFiles = Array.from(e.target.files);
+  selectedBidderFiles = [...selectedBidderFiles, ...newFiles].slice(0, 7); // limit 7
+  renderFileLists();
+});
+
+
+
 // ---- Professional modal flow for export ----
 const defaultProjectName =
   "Proposed Industrial Building for M/s DGG Exports Pvt. Ltd At Shiggaon, Karnataka";
 
 function openExportModal() {
-  const modal = document.getElementById("export-modal");
+  const modal  = document.getElementById("export-modal");
   const lowIn  = document.getElementById("modal-low");
   const highIn = document.getElementById("modal-high");
   const projIn = document.getElementById("modal-project");
+  const scopeIn = document.getElementById("modal-scope");   // 🔥 new
   const errBox = document.getElementById("modal-error");
 
   // prefill from current UI values
   lowIn.value  = document.getElementById("lower-variance").value || "0.80";
   highIn.value = document.getElementById("upper-variance").value || "1.20";
   projIn.value = projIn.value || defaultProjectName;
+  scopeIn.value = scopeIn.value || "";   // 🔥 prefill empty or last scope if you want
 
   errBox.classList.add("hidden");
   errBox.textContent = "";
@@ -263,6 +400,7 @@ function showModalError(msg) {
 
 async function submitExportModal() {
   const projIn   = document.getElementById("modal-project");
+  const projectScope = document.getElementById("modal-scope").value || "Not specified"; // 🔥 new
   const lowInput = document.getElementById("modal-low");
   const highInput= document.getElementById("modal-high");
 
@@ -302,7 +440,7 @@ async function submitExportModal() {
     if (exportBtn) exportBtn.disabled = true;
     setUiBusy(true);                    // show spinner during export
     closeExportModal();                 // close the modal right away (optional)
-    await handleDownloadExcelJS(name, low, high);
+    await handleDownloadExcelJS(name, low, high , projectScope);
   } catch (err) {
     console.error(err);
     showModalError("Export failed. See console for details.");
@@ -317,19 +455,27 @@ async function submitExportModal() {
 /* ===================== Compatibility & helpers ===================== */
 
 
+// map normalized key -> real Excel sheet name (for display/export)
+let sheetDisplayNameMap = {};
+// ordered list of normalized keys from the Estimate workbook
+let estimateSheetKeysOrdered = [];
+
+function displayNameFor(key){
+  return (key === "Summary") ? "Summary" : (sheetDisplayNameMap[key] || key);
+}
+
+
 
 // recognises the Roads & Drains sheet
-const RD_SHEET_RE = /roads.*drains?|drains?.*roads?/i;
-
-// recognises the two summary lines inside the sheet
 const RD_BREAK_LABELS = {
   roads: [
-    /\binternal\s*roads?\b/i,   // Internal Roads
-    /\broads?\b/i               // Roads
+    /\binternal\s*roads?\b/i,
+    /\broads?\b/i
   ],
   swd: [
-    /\bstorm\s*water\s*(?:drain|drains)\b/i,   // Storm Water Drain
-    /\bswd\b/i, /\bs\/?w\s?d\b/i               // SWD, S/W D
+    /\bstorm\s*water\s*(?:drain|drains)\b/i,
+    /\bswd\b/i,
+    /\bs\/?\s*w\s*\/?\s*d\b/i
   ]
 };
 
@@ -473,6 +619,11 @@ function inferSheetConfigFromWorksheet(worksheet) {
   // last resort
   return DEFAULT_BOQ_CONFIG;
 }
+
+
+
+
+
 
 
 function inferSheetConfigFromWorksheetMEP(worksheet){
@@ -619,8 +770,10 @@ async function handleProcessFiles() {
     const estimateData = await parseExcelFile(estimateFile, true);
     const biddersData = await Promise.all(Array.from(bidderFiles).map((file) => parseExcelFile(file, false)));
 
-    const boqSheetNames = Object.keys(estimateData);
-    processedSheetNames = ["Summary", ...boqSheetNames];
+    // const boqSheetNames = Object.keys(estimateData);
+    // processedSheetNames = ["Summary", ...boqSheetNames];
+
+    processedSheetNames = ["Summary", ...estimateSheetKeysOrdered];
 
     consolidateAllData(estimateData, biddersData);
 
@@ -631,6 +784,8 @@ async function handleProcessFiles() {
     renderUI();
     outputSection.classList.remove("hidden");
     downloadButton.classList.remove("hidden");
+    document.getElementById("reload-page").classList.remove("hidden");
+    processButton.classList.add("hidden"); 
   } catch (e) {
     console.error("Error during file processing:", e);
     alert("An error occurred while processing the files. Please check the console for details.");
@@ -638,6 +793,17 @@ async function handleProcessFiles() {
     loader.classList.add("hidden");
   }
 }
+
+document.getElementById("reload-page").addEventListener("click", () => {
+  window.location.reload();
+});
+
+
+function normalizeName(s) {
+  return String(s || "").toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+
 
 // read excel (formatted text, blanks -> "")
 function parseExcelFile(file, isEstimate) {
@@ -648,22 +814,23 @@ function parseExcelFile(file, isEstimate) {
         const workbook = XLSX.read(new Uint8Array(e.target.result), { type: "array" });
         const parsed = {};
         workbook.SheetNames.forEach((sheetName) => {
-          if (EXCLUDE_SHEETS.some(re => re.test(sheetName))) return;
+          const norm = normalizeName(sheetName);
+          sheetDisplayNameMap[norm] = sheetName;               // remember real name
+if (isEstimate) estimateSheetKeysOrdered.push(norm);
+          if (EXCLUDE_SHEETS.some(re => re.test(norm))) return;
           const worksheet = workbook.Sheets[sheetName];
           if (!worksheet) return;
 
-          const explicit = getConfigForSheet(sheetName, isEstimate);
-          const cfg = explicit || inferSheetConfigAuto(worksheet);
-
+          const cfg = getConfigForSheet(sheetName, isEstimate) || inferSheetConfigAuto(worksheet);
           const rows = XLSX.utils.sheet_to_json(worksheet, {
             header: 1,
             range: Math.max(0, (cfg.startRow ?? 1) - 1),
             raw: false,
             defval: ""
           });
-
           rows._cfg = cfg;
-          parsed[sheetName] = rows;
+
+          parsed[norm] = rows; // ← use normalized key
         });
         resolve(parsed);
       } catch (err) { reject(err); }
@@ -689,18 +856,6 @@ function normalizeSrNo(value) {
 function consolidateAllData(estimateData, biddersData) {
   consolidatedData = {};
 
-  // --- robust label detection for the two summary lines ---
-  const RD_BREAK_LABELS = {
-    roads: [
-      /\binternal\s*roads?\b/i,
-      /\broads?\b/i
-    ],
-    swd: [
-      /\bstorm\s*water\s*(?:drain|drains)\b/i,
-      /\bswd\b/i,
-      /\bs\/?\s*w\s*\/?\s*d\b/i      // S/W D variations
-    ]
-  };
 
   const SUBTOTAL_RE      = /sub[\s-]?total/i;
   const TOTAL_AMOUNT_RE  = /^total\s*amount/i;
@@ -1053,129 +1208,69 @@ function calculateAllTotals() {
 }
 
 /* ---------- Summary builder ---------- */
+
 function buildSummarySheet(summaryData) {
-  const addArr = (a, b) => a.map((v, i) => v + (b[i] || 0));
-  const bidderZero = () => Array(bidderNames.length).fill(0);
-
   const rows = [];
-  let totalABC = { estimateAmount: 0, bidderAmounts: bidderZero() };
+  const bidderZero = () => Array(bidderNames.length).fill(0);
+  const addArr = (a, b) => a.map((v, i) => v + (b[i] || 0));
 
-  const sheetOrder = processedSheetNames.slice(1);
+  // one row per sheet from the Estimate file, exact names, same order
+  let serial = 1;
+  let running = { estimateAmount: 0, bidderAmounts: bidderZero() };
 
-  const createRow = (kind, slNo, description, amounts) => {
-    const validBids = (amounts.bidderAmounts || []).filter((a) => a > 0);
-    return {
-      kind,
-      slNo,
-      description,
-      ...amounts,
-      leastAmount: validBids.length > 0 ? Math.min(...validBids) : 0
-    };
-  };
-
-  const groupAKeys = sheetOrder.filter((s) => s.includes("Main Bldg") || s.includes("Admin"));
-  const groupBKeys = sheetOrder.filter(
-    (s) => s.includes("Roads") || s.includes("Compound Wall") || s.includes("UG Sump") || s.includes("Storm Water")
-  );
-  const groupCKeys = sheetOrder.filter((s) => !groupAKeys.includes(s) && !groupBKeys.includes(s));
-
-  // ===== A =====
-  rows.push(createRow("category", "A", "Building Works", { estimateAmount: 0, bidderAmounts: bidderZero() }));
-  let totalA = { estimateAmount: 0, bidderAmounts: bidderZero() };
-  let aSerial = 1;
-  groupAKeys.forEach((key) => {
-    const data = summaryData[key];
-    if (data) {
-      rows.push(createRow("item", aSerial++, prettySheetName(key), data));
-      totalA.estimateAmount += data.estimateAmount;
-      totalA.bidderAmounts = addArr(totalA.bidderAmounts, data.bidderAmounts);
-    }
-  });
-  rows.push(createRow("subtotal", "", "Total of A (Rs.)", totalA));
-  totalABC.estimateAmount += totalA.estimateAmount;
-  totalABC.bidderAmounts = addArr(totalABC.bidderAmounts, totalA.bidderAmounts);
-
-  // ===== B =====
-  rows.push(createRow("category", "B", "External Development", { estimateAmount: 0, bidderAmounts: bidderZero() }));
-  let totalB = { estimateAmount: 0, bidderAmounts: bidderZero() };
-  let bSerial = 3;
-
-  // only insert the special split once (avoid duplicates if there are many sheets)
-  let usedBreakdown = false;
-  const breakdown = summaryData.__roadsBreakdown;
-
-  groupBKeys.forEach((key) => {
-    const data = summaryData[key];
-    if (!data) return;
-
-    if (!usedBreakdown && breakdown && (breakdown["Internal Roads"] || breakdown["Roads"] || breakdown["Storm Water Drain"] || breakdown["SWD"])) {
-      const r1 = breakdown["Internal Roads"] || breakdown["Roads"];
-      const r2 = breakdown["Storm Water Drain"] || breakdown["SWD"];
-
-      if (r1) {
-        rows.push(createRow("item", bSerial++, "Internal Roads", r1));
-        totalB.estimateAmount += r1.estimateAmount;
-        totalB.bidderAmounts = addArr(totalB.bidderAmounts, r1.bidderAmounts);
-      }
-      if (r2) {
-        rows.push(createRow("item", bSerial++, "Storm Water Drain", r2));
-        totalB.estimateAmount += r2.estimateAmount;
-        totalB.bidderAmounts = addArr(totalB.bidderAmounts, r2.bidderAmounts);
-      }
-      usedBreakdown = true;
-      return; // do not add the combined sheet line
-    }
-
-    rows.push(createRow("item", bSerial++, prettySheetName(key), data));
-    totalB.estimateAmount += data.estimateAmount;
-    totalB.bidderAmounts = addArr(totalB.bidderAmounts, data.bidderAmounts);
+  estimateSheetKeysOrdered.forEach((key) => {
+    const d = summaryData[key];
+    if (!d) return;
+    const bids = d.bidderAmounts || bidderZero();
+    const least = Math.min(...bids.filter(v => v > 0), Infinity);
+    rows.push({
+      kind: "item",
+      slNo: serial++,
+      description: displayNameFor(key),     // e.g., "CIVIL & FINISHES"
+      estimateAmount: d.estimateAmount || 0,
+      bidderAmounts: bids,
+      leastAmount: isFinite(least) ? least : 0
+    });
+    running.estimateAmount += d.estimateAmount || 0;
+    running.bidderAmounts = addArr(running.bidderAmounts, bids);
   });
 
-  rows.push(createRow("subtotal", "", "Total of B (Rs.)", totalB));
-  totalABC.estimateAmount += totalB.estimateAmount;
-  totalABC.bidderAmounts = addArr(totalABC.bidderAmounts, totalB.bidderAmounts);
-
-  // ===== C =====
-  rows.push(createRow("category", "C", "B/F Plumbing and sanitary works", { estimateAmount: 0, bidderAmounts: bidderZero() }));
-  let totalC = { estimateAmount: 0, bidderAmounts: bidderZero() };
-  groupCKeys.forEach((key) => {
-    const data = summaryData[key];
-    if (data) {
-      rows.push(createRow("item", "", prettySheetName(key), data));
-      totalC.estimateAmount += data.estimateAmount;
-      totalC.bidderAmounts = addArr(totalC.bidderAmounts, data.bidderAmounts);
-    }
+  // TOTAL
+  const totalLeast = Math.min(...running.bidderAmounts.filter(v => v > 0), Infinity);
+  rows.push({
+    kind: "grand",
+    slNo: "",
+    description: "TOTAL",
+    estimateAmount: running.estimateAmount,
+    bidderAmounts: running.bidderAmounts,
+    leastAmount: isFinite(totalLeast) ? totalLeast : 0
   });
-  if (totalC.estimateAmount > 0 || totalC.bidderAmounts.some((a) => a > 0)) {
-    rows.push(createRow("subtotal", "", "Total of C (Rs.)", totalC));
-    totalABC.estimateAmount += totalC.estimateAmount;
-    totalABC.bidderAmounts = addArr(totalABC.bidderAmounts, totalC.bidderAmounts);
-  }
 
-  // Difference, grand and GST
-  const difference = {
-    estimateAmount: 0,
-    bidderAmounts: totalABC.bidderAmounts.map((b) => b - totalABC.estimateAmount),
+  // GST @ 18%
+  const GST_RATE = 0.18;
+  const gstRow = {
+    kind: "item",
+    slNo: "",
+    description: "GST @ 18%",
+    estimateAmount: running.estimateAmount * GST_RATE,
+    bidderAmounts: running.bidderAmounts.map(v => v * GST_RATE),
     leastAmount: 0
   };
-  rows.push(createRow("item", "", "Difference in value", difference));
+  rows.push(gstRow);
 
-  rows.push(createRow("grand", "D", "Total Of (A+B+C)", totalABC));
-
-  const gst = {
-    estimateAmount: totalABC.estimateAmount * 0.18,
-    bidderAmounts: totalABC.bidderAmounts.map((b) => b * 0.18)
-  };
-  rows.push(createRow("item", "", "GST @ 18%", gst));
-
-  const finalTotal = {
-    estimateAmount: totalABC.estimateAmount + gst.estimateAmount,
-    bidderAmounts: totalABC.bidderAmounts.map((b, i) => b + gst.bidderAmounts[i])
-  };
-  rows.push(createRow("grand", "", "Total including GST Rs.", finalTotal));
+  // Total including GST
+  rows.push({
+    kind: "grand",
+    slNo: "",
+    description: "Total including GST Rs.",
+    estimateAmount: running.estimateAmount + gstRow.estimateAmount,
+    bidderAmounts: running.bidderAmounts.map((v, i) => v + gstRow.bidderAmounts[i]),
+    leastAmount: 0
+  });
 
   consolidatedData.Summary = rows;
 }
+
 
 /* ===================== UI ===================== */
 
@@ -1209,20 +1304,21 @@ function renderUI() {
 function renderTabs() {
   const tabsContainer = document.getElementById("tabs-container");
   tabsContainer.innerHTML = "";
-  processedSheetNames.forEach((sheetName) => {
+  processedSheetNames.forEach((sheetKey) => {
     const btn = document.createElement("button");
-    btn.textContent = prettySheetName(sheetName);
+    btn.textContent = displayNameFor(sheetKey); // exact Excel tab text
     btn.className =
       "tab-button border-b-2 border-transparent py-2 px-4 text-sm font-medium text-gray-300 hover:text-gray-100 hover:border-gray-500";
-    btn.dataset.sheet = sheetName;
+    btn.dataset.sheet = sheetKey;
     btn.addEventListener("click", (e) => {
       document.querySelectorAll(".tab-button").forEach((b) => b.classList.remove("active"));
       e.target.classList.add("active");
-      renderTableForSheet(sheetName);
+      renderTableForSheet(sheetKey);
     });
     tabsContainer.appendChild(btn);
   });
 }
+
 
 function renderTableForSheet(sheetName) {
   const tablesContainer = document.getElementById("tables-container");
@@ -1610,7 +1706,7 @@ function extractMEPFields(row, cfg){
 
 /* ===================== Excel export ===================== */
 /* ===================== Excel export ===================== */
-async function handleDownloadExcelJS(projectNameArg, lowArg, highArg) {
+async function handleDownloadExcelJS(projectNameArg, lowArg, highArg ,scopeArg) {
   // --- 1) Gather Project Name + Variance (modal > inputs > defaults) ---
   const DEFAULT_PROJECT =
     "Proposed Industrial Building for M/s DGG Exports Pvt. Ltd At Shiggaon, Karnataka";
@@ -1620,6 +1716,12 @@ async function handleDownloadExcelJS(projectNameArg, lowArg, highArg) {
     const modalProject = document.getElementById("modal-project");
     projectName = (modalProject && modalProject.value.trim()) || DEFAULT_PROJECT;
   }
+
+  let projectScope = (scopeArg ?? "").trim();
+if (!projectScope) {
+  const modalScope = document.getElementById("modal-scope");
+  projectScope = (modalScope && modalScope.value.trim()) || "Not specified";
+}
 
   let selectedVarianceLow =
     (typeof lowArg === "number" && isFinite(lowArg)) ?
@@ -1694,7 +1796,8 @@ async function handleDownloadExcelJS(projectNameArg, lowArg, highArg) {
   }
 
   for (const sheetName of sheetsToDownload) {
-    const sheet = workbook.addWorksheet(sheetName.substring(0, 31));
+    const excelName = displayNameFor(sheetName).substring(0, 31);
+    const sheet = workbook.addWorksheet(excelName);
     const spacerRowNumbers = new Set();
 
     // Header block (project, scope, variance, meta)
@@ -1704,7 +1807,7 @@ async function handleDownloadExcelJS(projectNameArg, lowArg, highArg) {
     sheet.getCell("A1").alignment = { horizontal: "left", vertical: "middle" };
 
   sheet.mergeCells("A2","D2");
-sheet.getCell("A2").value = COMPARISON_MODE === 'mep' ? "Scope : MEP Works" : "Scope : Civil Works";
+sheet.getCell("A2").value = `Scope   : ${projectScope}`;
 
     sheet.getCell("A2").font = { bold: true };
     sheet.getCell("A2").alignment = { horizontal: "left", vertical: "middle" };
@@ -2093,8 +2196,8 @@ if (!item.isSubtotal && !item.isGrandTotal && !item.isCategory) {
 
   // --- 4) Save file ---
 const outName = COMPARISON_MODE === 'mep'
-  ? "DGG_MEP_CS_Consolidated_Output.xlsx"
-  : "DGG_Civil_CS_Consolidated_Output.xlsx";
+  ? "CS_Consolidated_Output.xlsx"
+  : "CS_Consolidated_Output.xlsx";
 
 const buffer = await workbook.xlsx.writeBuffer();
 saveAs(
@@ -2103,6 +2206,11 @@ saveAs(
 );
 }
 window.handleDownloadExcelJS = handleDownloadExcelJS;
+
+
+document.getElementById("reload-page").addEventListener("click", () => {
+  window.location.reload();
+});
 
 </script>
 
@@ -2141,7 +2249,14 @@ window.handleDownloadExcelJS = handleDownloadExcelJS;
             This appears at the top of every exported sheet.
           </p>
         </div>
-
+        
+        <div>
+  <label class="block text-sm font-medium text-gray-300 mb-1">Scope</label>
+  <input type="text" id="modal-scope"
+    class="w-full px-3 py-2 rounded-md bg-gray-800 border border-gray-600 text-gray-100"
+    placeholder="Enter scope of work" />
+  <p class="text-xs text-gray-400 mt-1">This will also appear in the exported Excel file.</p>
+</div>
         <!-- Variance -->
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
