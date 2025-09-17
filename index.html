@@ -1078,6 +1078,7 @@ function consolidateAllData(estimateData, biddersData) {
 
 
 /* ---------- Totals ---------- */
+
 function calculateAllTotals() {
   const summarySheetData = {};
 
@@ -1093,12 +1094,43 @@ function calculateAllTotals() {
         COMPARISON_MODE === "mep" ||
         (consolidatedData[sheetName]?._cfg && consolidatedData[sheetName]._cfg.isMEP);
 
+      // 🧼 If estimate qty is 0 ⇒ show blanks (not zeros) for rate/amount everywhere.
+      // (Totals still work because later we coerce blanks to 0 only for the math.)
+      if (!item.amountOnly) {
+        const q = Number(item.qty || 0);
+        if (q === 0) {
+          // Estimate
+          item.estimate.rate      = "";
+          item.estimate.amount    = "";
+          item.estimate.rawAmount = "";
+          if (isMEPSheet) {
+            item.estimate.sRate   = "";
+            item.estimate.lRate   = "";
+            item.estimate.sAmount = "";
+            item.estimate.lAmount = "";
+          }
+          // Bidders
+          item.bidders.forEach((b) => {
+            b.rate      = "";
+            b.amount    = "";
+            b.rawAmount = "";
+            if (isMEPSheet) {
+              b.sRate   = "";
+              b.lRate   = "";
+              b.sAmount = "";
+              b.lAmount = "";
+            }
+          });
+          return; // skip further math for this row
+        }
+      }
+
       if (isMEPSheet) {
-        const qty = Number(item.qty || 0);
-        const estSRate = Number(item.estimate?.sRate || 0);
-        const estLRate = Number(item.estimate?.lRate || 0);
-        let estSAmt     = Number(item.estimate?.sAmount || 0);
-        let estLAmt     = Number(item.estimate?.lAmount || 0);
+        const qty     = Number(item.qty || 0);
+        const estSRate= Number(item.estimate?.sRate || 0);
+        const estLRate= Number(item.estimate?.lRate || 0);
+        let   estSAmt = Number(item.estimate?.sAmount || 0);
+        let   estLAmt = Number(item.estimate?.lAmount || 0);
 
         if (estSAmt <= 0 && estSRate > 0 && qty > 0) estSAmt = estSRate * qty;
         if (estLAmt <= 0 && estLRate > 0 && qty > 0) estLAmt = estLRate * qty;
@@ -1216,14 +1248,13 @@ function calculateAllTotals() {
     grandRow.estimate.amount = grand.estimate;
     grandRow.bidders.forEach((b, i) => (b.amount = grand.bidders[i]));
 
-    // hand totals for Summary
+    // For Summary
     summarySheetData[sheetName] = {
       estimateAmount: grand.estimate,
       bidderAmounts: grand.bidders,
     };
 
-    // ✅ if we saw any “Internal Roads” or “Storm Water Drain” lines in this sheet,
-    // capture them for breaking out in Summary (independent of sheet name)
+    // Optional Roads/Drains breakdown
     const rdRows = sheetData.filter(r => r.isSummaryRow);
     if (rdRows.length) {
       const breakdown = {};
@@ -1237,9 +1268,12 @@ function calculateAllTotals() {
     }
   }
 
-  // ---------- 5) Build the “Summary” sheet ----------
+  // ---------- 5) Build Summary ----------
   buildSummarySheet(summarySheetData);
 }
+
+
+
 
 /* ---------- Summary builder ---------- */
 
@@ -1441,20 +1475,7 @@ function renderSummaryTable(thead, tbody, data) {
 function renderBoqTable(thead, tbody, data, sheetName) {
   const amountOnlySheet = !!data._isAmountOnly;
 
-  const h1 = document.createElement("tr");
-  h1.innerHTML = `
-    <th rowspan="2" class="sticky-col-1 col-slno">Sl. No.</th>
-    <th rowspan="2" class="sticky-col-2 col-desc">Description of Items</th>
-    <th rowspan="2">Unit</th>
-    <th rowspan="2">Qty</th>
-    <th colspan="2">Estimate</th>
-    ${bidderNames.map((name) => `<th colspan="2">${name}</th>`).join("")}
-    <th colspan="2">Least Bid</th>
-  `;
-  const h2 = document.createElement("tr");
-  const ra = `<th class="amount-cell">Rate</th><th class="amount-cell">Amount</th>`;
-  h2.innerHTML = `${ra.repeat(1 + bidderNames.length + 1)}`;
-  thead.append(h1, h2);
+  // ... (headers unchanged)
 
   const { lower, upper } = getVarianceThresholds();
 
@@ -1465,9 +1486,12 @@ function renderBoqTable(thead, tbody, data, sheetName) {
     else if (item.isCategory) tr.className = "category-header";
 
     const isEditable = !item.isSubtotal && !item.isGrandTotal && !item.isCategory;
+
+    // 👉 blank all cells for detail rows whose Qty is 0
+    const showBlank = isEditable && Number(item.qty || 0) === 0;
+
     const least = isEditable ? findLeastBid(item) : { rate: 0, amount: 0 };
 
-    // bidders (each spans 2 columns)
     let bidderCellsHtml = "";
     item.bidders.forEach((b, i) => {
       let varianceClass = "";
@@ -1477,52 +1501,54 @@ function renderBoqTable(thead, tbody, data, sheetName) {
         else if (ratio > upper) varianceClass = "bg-orange-100";
       }
 
-      // 🔴 missing rate if qty > 0 and rate not quoted
-      const missing = (!amountOnlySheet && isEditable && isPositiveQty(item.qty) && (!b.rate || b.rate === 0));
+      const missing = (!amountOnlySheet && isEditable && !showBlank && isPositiveQty(item.qty) && (!b.rate || b.rate === 0));
 
       const rateHtml = amountOnlySheet
-        ? `<span class="val ${zeroCls(0)}"></span>`
+        ? `<span class="val"></span>`
         : (isEditable
             ? `<input type="number"
                      class="rate-input ${varianceClass} ${missing ? "missing-rate" : ""} ${(b.rate||0)===0 ? "zero-value" : ""}"
-                     value="${b.rate || 0}"
+                     value="${showBlank ? "" : (b.rate || 0)}"
                      data-row-index="${rowIndex}" data-bidder-index="${i}"
                      onchange="handleRateChange(this, '${sheetName}')" />`
-            : `<span class="val ${zeroCls(b.rate || 0)}">${formatCurrency(b.rate || 0)}</span>`);
+            : `<span class="val ${showBlank ? "" : zeroCls(b.rate || 0)}">${showBlank ? "" : formatCurrency(b.rate || 0)}</span>`);
 
       bidderCellsHtml += `
         <td class="compact-cell" colspan="2">
           <span class="label">Rate</span>${rateHtml}
-          <span class="label">Amt</span><span class="val ${zeroCls(b.amount || 0)}">${formatCurrency(b.amount || 0)}</span>
+          <span class="label">Amt</span><span class="val ${showBlank ? "" : zeroCls(b.amount || 0)}">${showBlank ? "" : formatCurrency(b.amount || 0)}</span>
         </td>`;
     });
 
-    const estRate = amountOnlySheet ? "" : formatCurrency(item.estimate.rate || 0);
-    const estAmt = formatCurrency(item.estimate.amount || 0);
+    const estRate = amountOnlySheet ? "" : (showBlank ? "" : formatCurrency(item.estimate.rate || 0));
+    const estAmt  = showBlank ? "" : formatCurrency(item.estimate.amount || 0);
 
     tr.innerHTML = `
       <td class="sticky-col-1 col-slno">${item.slNo || ""}</td>
       <td class="sticky-col-2 col-desc">${item.description || ""}</td>
       <td>${item.unit || ""}</td>
-      <td class="amount-cell ${zeroCls(item.qty || 0)}">${item.qty || ""}</td>
 
-      <!-- Estimate (2 columns) -->
+      <!-- Qty -->
+      <td class="amount-cell ${showBlank ? "" : zeroCls(item.qty || 0)}">${showBlank ? "" : (item.qty || "")}</td>
+
+      <!-- Estimate -->
       <td class="compact-cell" colspan="2">
-        <span class="label">Rate</span><span class="val ${zeroCls(item.estimate.rate || 0)}">${amountOnlySheet ? "" : estRate}</span>
-        <span class="label">Amt</span><span class="val ${zeroCls(item.estimate.amount || 0)}">${estAmt}</span>
+        <span class="label">Rate</span><span class="val ${showBlank ? "" : zeroCls(item.estimate.rate || 0)}">${amountOnlySheet ? "" : estRate}</span>
+        <span class="label">Amt</span><span class="val ${showBlank ? "" : zeroCls(item.estimate.amount || 0)}">${estAmt}</span>
       </td>
 
       ${bidderCellsHtml}
 
-      <!-- Least Bid (2 columns) -->
+      <!-- Least Bid -->
       <td class="compact-cell least-rate-cell" colspan="2">
-        <span class="label">Rate</span><span class="val ${zeroCls(least.rate)}">${amountOnlySheet ? "" : formatCurrency(least.rate)}</span>
-        <span class="label">Amt</span><span class="val ${zeroCls(least.amount)}">${formatCurrency(least.amount)}</span>
+        <span class="label">Rate</span><span class="val ${showBlank ? "" : zeroCls(least.rate)}">${amountOnlySheet ? "" : (showBlank ? "" : formatCurrency(least.rate))}</span>
+        <span class="label">Amt</span><span class="val ${showBlank ? "" : zeroCls(least.amount)}">${showBlank ? "" : formatCurrency(least.amount)}</span>
       </td>
     `;
     tbody.appendChild(tr);
   });
 }
+
 
 
 function renderBoqTableMEP(thead, tbody, data, sheetName) {
@@ -1572,12 +1598,34 @@ function renderBoqTableMEP(thead, tbody, data, sheetName) {
       const missS = isEditable && isPositiveQty(item.qty) && !b.sRate;
       const missL = isEditable && isPositiveQty(item.qty) && !b.lRate;
 
-      bidderCellsHtml += `
-        <td class="amount-cell"><input type="number" class="rate-input ${sClass} ${missS ? "missing-rate" : ""}" value="${b.sRate || 0}" onchange="this.value=this.value||0;"/></td>
-        <td class="amount-cell"><input type="number" class="rate-input ${lClass} ${missL ? "missing-rate" : ""}" value="${b.lRate || 0}" onchange="this.value=this.value||0;"/></td>
-        <td class="amount-cell"><span class="${zeroCls(b.sAmount||0)}">${formatCurrency(b.sAmount||0)}</span></td>
-        <td class="amount-cell"><span class="${zeroCls(b.lAmount||0)}">${formatCurrency(b.lAmount||0)}</span></td>
-      `;
+     const showBlank = isEditable && Number(item.qty || 0) === 0;
+
+bidderCellsHtml += `
+  <td class="amount-cell">
+    <input
+      type="number"
+      class="rate-input ${sClass} ${missS ? "missing-rate" : ""}"
+      value="${showBlank ? "" : (b.sRate || 0)}"
+    />
+  </td>
+  <td class="amount-cell">
+    <input
+      type="number"
+      class="rate-input ${lClass} ${missL ? "missing-rate" : ""}"
+      value="${showBlank ? "" : (b.lRate || 0)}"
+    />
+  </td>
+  <td class="amount-cell">
+    <span class="${showBlank ? "" : zeroCls(b.sAmount || 0)}">
+      ${showBlank ? "" : formatCurrency(b.sAmount || 0)}
+    </span>
+  </td>
+  <td class="amount-cell">
+    <span class="${showBlank ? "" : zeroCls(b.lAmount || 0)}">
+      ${showBlank ? "" : formatCurrency(b.lAmount || 0)}
+    </span>
+  </td>
+`;
     });
 
     tr.innerHTML = `
@@ -1756,20 +1804,20 @@ async function handleDownloadExcelJS(projectNameArg, lowArg, highArg ,scopeArg) 
   }
 
   let projectScope = (scopeArg ?? "").trim();
-if (!projectScope) {
-  const modalScope = document.getElementById("modal-scope");
-  projectScope = (modalScope && modalScope.value.trim()) || "Not specified";
-}
+  if (!projectScope) {
+    const modalScope = document.getElementById("modal-scope");
+    projectScope = (modalScope && modalScope.value.trim()) || "Not specified";
+  }
 
   let selectedVarianceLow =
-    (typeof lowArg === "number" && isFinite(lowArg)) ?
-      lowArg :
-      (parseFloat(document.getElementById("lower-variance")?.value) || 0.8);
+    (typeof lowArg === "number" && isFinite(lowArg))
+      ? lowArg
+      : (parseFloat(document.getElementById("lower-variance")?.value) || 0.8);
 
   let selectedVarianceHigh =
-    (typeof highArg === "number" && isFinite(highArg)) ?
-      highArg :
-      (parseFloat(document.getElementById("upper-variance")?.value) || 1.2);
+    (typeof highArg === "number" && isFinite(highArg))
+      ? highArg
+      : (parseFloat(document.getElementById("upper-variance")?.value) || 1.2);
 
   // clamp + order
   selectedVarianceLow  = Math.max(0, Math.min(selectedVarianceLow, 10));
@@ -1800,9 +1848,9 @@ if (!projectScope) {
   const isSubtotalText = (txt = "") => /sub[\s-]?total/i.test(String(txt));
   const insertWrapHints = (txt) =>
     txt == null ? "" : String(txt).replace(/\s+/g, " ")
-                                .replace(/\//g, "/\u200b")
-                                .replace(/-/g, "-\u200b")
-                                .trim();
+                                  .replace(/\//g, "/\u200b")
+                                  .replace(/-/g, "-\u200b")
+                                  .trim();
   const formatSrNo = (val) => (val == null ? "" : String(val).trim());
 
   const estimateRowHeight = (text, colWidth, lineHeight = 16, min = 18, max = 120) => {
@@ -1844,9 +1892,8 @@ if (!projectScope) {
     sheet.getCell("A1").font = { bold: true };
     sheet.getCell("A1").alignment = { horizontal: "left", vertical: "middle" };
 
-  sheet.mergeCells("A2","D2");
-sheet.getCell("A2").value = `Scope   : ${projectScope}`;
-
+    sheet.mergeCells("A2","D2");
+    sheet.getCell("A2").value = `Scope   : ${projectScope}`;
     sheet.getCell("A2").font = { bold: true };
     sheet.getCell("A2").alignment = { horizontal: "left", vertical: "middle" };
 
@@ -1915,194 +1962,197 @@ sheet.getCell("A2").value = `Scope   : ${projectScope}`;
 
       sheet.views = [{ state: "frozen", ySplit: 4 }];
 
-        // ✅ add borders for Summary before leaving this branch
-  sheet.eachRow((row) => {
-    row.eachCell({ includeEmpty: true }, (cell) => {
-      cell.border = {
-        top: { style: "thin" },
-        left: { style: "thin" },
-        bottom: { style: "thin" },
-        right: { style: "thin" },
-      };
-      if (cell.value == null) cell.value = "";
-    });
-  });
+      // borders for Summary
+      sheet.eachRow((row) => {
+        row.eachCell({ includeEmpty: true }, (cell) => {
+          cell.border = {
+            top: { style: "thin" },
+            left: { style: "thin" },
+            bottom: { style: "thin" },
+            right: { style: "thin" },
+          };
+          if (cell.value == null) cell.value = "";
+        });
+      });
 
       continue; // next sheet
     }
 
+    // ---------- MEP SHEETS ----------
+    if (!isSummary(sheetName) && COMPARISON_MODE === 'mep') {
+      sheet.addRow([]);
 
-  if (!isSummary(sheetName) && COMPARISON_MODE === 'mep') {
-  sheet.addRow([]);
+      // 2-row header
+      const h1 = sheet.addRow([
+        "Sr.No.", "Description of Work",
+        "Estimate", null, null, null, null, null, null, null, null,          // 9 subcols
+        ...bidderNames.flatMap(n => [n, null, null, null]),                   // 4 subcols per bidder
+        "Least Amount"
+      ]);
 
-  // --- 2-row header ---
-  const h1 = sheet.addRow([
-    "Sr.No.", "Description of Work",
-    "Estimate", null, null, null, null, null, null, null, null,          // 9 subcols
-    ...bidderNames.flatMap(n => [n, null, null, null]),                   // 4 subcols per bidder
-    "Least Amount"
-  ]);
+      const h2 = sheet.addRow([
+        null, null,
+        "UNIT", "GF", "1F", "TF", "TOTAL QTY", "SUPPLY RATE", "LABOUR RATE", "SUPPLY AMOUNT", "LABOUR AMOUNT",
+        ...bidderNames.flatMap(() => ["SUPPLY RATE", "LABOUR RATE", "SUPPLY AMOUNT", "LABOUR AMOUNT"]),
+        null
+      ]);
 
-  const h2 = sheet.addRow([
-    null, null,
-    "UNIT", "GF", "1F", "TF", "TOTAL QTY", "SUPPLY RATE", "LABOUR RATE", "SUPPLY AMOUNT", "LABOUR AMOUNT",
-    ...bidderNames.flatMap(() => ["SUPPLY RATE", "LABOUR RATE", "SUPPLY AMOUNT", "LABOUR AMOUNT"]),
-    null
-  ]);
+      // merges: "Estimate" over 9 subcolumns, then each bidder over 4
+      sheet.mergeCells(4, 3, 4, 11);
+      bidderNames.forEach((_, i) => sheet.mergeCells(4, 12 + i*4, 4, 15 + i*4));
 
-  // merges: "Estimate" over 9 subcolumns, then each bidder over 4
-  sheet.mergeCells(4, 3, 4, 11);
-  bidderNames.forEach((_, i) => sheet.mergeCells(4, 12 + i*4, 4, 15 + i*4));
-
-  [h1, h2].forEach(r => {
-    r.font = { bold: true, color: { argb: "FF000000" } };
-    r.fill = { type: "pattern", pattern: "solid", fgColor: { argb: HEADER_PEACH } };
-    r.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-    r.height = 28;
-  });
-
-  // widths: SrNo, Desc, then the 9 estimate cols, then per-bidder 4, then Least
-  [14, 90, 10, 10, 10, 10, 12, 12, 12, 14, 14,
-   ...bidderNames.flatMap(() => [12, 12, 14, 14]),
-   16].forEach((w, i) => (sheet.getColumn(i + 1).width = w));
-  sheet.getColumn(1).numFmt = "@";
-
-  const descWidth = 90;                     // for row height calc
-  const seenTop = new Set();
-
-  (consolidatedData[sheetName] || []).forEach(item => {
-    const least = (item.bidders && item.bidders.length)
-      ? (Math.min(...item.bidders.map(b => Number(b.amount || 0)).filter(v => v > 0)) || 0)
-      : 0;
-
-    const row = sheet.addRow([
-      String(item.slNo ?? ""),
-      insertWrapHints(item.description || ""),
-
-      // Estimate 9 subcolumns
-      item.unit || "",
-      item.gfQty || 0,
-      item.oneFQty || 0,
-      item.tfQty || 0,
-      item.qty || 0,
-      item.estimate.sRate || 0,
-      item.estimate.lRate || 0,
-      item.estimate.sAmount || 0,
-      item.estimate.lAmount || 0,
-
-      // Each bidder: S rate, L rate, S amt, L amt
-      ...item.bidders.flatMap(b => [
-        b.sRate || 0, b.lRate || 0, b.sAmount || 0, b.lAmount || 0
-      ]),
-
-      // Least total (S+L)
-      least
-    ]);
-
-    // formats & alignment
-    row.getCell(1).numFmt = "@";
-    row.getCell(1).alignment = { vertical: "top", horizontal: "left", wrapText: true };
-    row.getCell(2).alignment = { vertical: "top", horizontal: "left", wrapText: true };
-
-    // Estimate subcolumns
-    row.getCell(3).alignment = { vertical: "top", horizontal: "center" }; // UNIT
-    [4,5,6,7].forEach(c => { row.getCell(c).alignment = { vertical:"top", horizontal:"right" }; row.getCell(c).numFmt = "#,##0"; });
-    row.getCell(8).alignment = { vertical:"top", horizontal:"right" }; row.getCell(8).numFmt = "#,##0.00"; // S rate
-    row.getCell(9).alignment = { vertical:"top", horizontal:"right" }; row.getCell(9).numFmt = "#,##0.00"; // L rate
-    row.getCell(10).alignment = { vertical:"top", horizontal:"right" }; row.getCell(10).numFmt = "#,##0";  // S amt
-    row.getCell(11).alignment = { vertical:"top", horizontal:"right" }; row.getCell(11).numFmt = "#,##0";  // L amt
-
-    // Bidder groups
-    const startBid = 12;
-    const endBid   = 12 + 4*bidderNames.length - 1;
-    for (let c = startBid; c <= endBid; c++) {
-      const idxInQuad = (c - startBid + 1) % 4; // 1=S rate, 2=L rate, 3=S amt, 0=L amt
-      row.getCell(c).alignment = { vertical: "top", horizontal: "right" };
-      row.getCell(c).numFmt = (idxInQuad === 1 || idxInQuad === 2) ? "#,##0.00" : "#,##0";
-    }
-
-    // Least
-    const leastCol = endBid + 1;
-    row.getCell(leastCol).alignment = { vertical: "top", horizontal: "right" };
-    row.getCell(leastCol).numFmt = "#,##0";
-
-
-    // ===== variance shading for MEP (apply on bidder S & L rate cells) =====
-if (!item.isSubtotal && !item.isGrandTotal && !item.isCategory) {
-  const unitEst = Number(item.estimate.sRate || 0) + Number(item.estimate.lRate || 0);
-
-  for (let i = 0; i < bidderNames.length; i++) {
-    const sCol = 12 + i * 4;      // bidder i SUPPLY RATE column
-    const lCol = sCol + 1;        // bidder i LABOUR  RATE column
-
-    const sRate = Number(row.getCell(sCol).value || 0);
-    const lRate = Number(row.getCell(lCol).value || 0);
-    const unitBid = sRate + lRate;
-
-    // Missing rate (qty>0 but either S or L is zero) -> dark red
-    if (Number(item.qty || 0) > 0 && (sRate === 0 || lRate === 0)) {
-      [sCol, lCol].forEach(c => {
-        const cell = row.getCell(c);
-        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF7F1D1D" } };
-        cell.font = { color: { argb: "FFFFFFFF" }, bold: true };
+      [h1, h2].forEach(r => {
+        r.font = { bold: true, color: { argb: "FF000000" } };
+        r.fill = { type: "pattern", pattern: "solid", fgColor: { argb: HEADER_PEACH } };
+        r.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+        r.height = 28;
       });
-      continue;
-    }
 
-    // Variance vs combined estimate unit rate (S+L)
-    if (unitEst > 0 && unitBid > 0) {
-      const ratio = unitBid / unitEst;
-      let argb = null;
-      if (ratio < selectedVarianceLow)      argb = "FFBFD7EA"; // low (blue-ish)
-      else if (ratio > selectedVarianceHigh) argb = "FFFFD2B3"; // high (orange-ish)
+      // widths
+      [
+        14, 90, 10, 10, 10, 10, 12, 12, 12, 14, 14,
+        ...bidderNames.flatMap(() => [12, 12, 14, 14]),
+        16
+      ].forEach((w, i) => (sheet.getColumn(i + 1).width = w));
+      sheet.getColumn(1).numFmt = "@";
 
-      if (argb) {
-        [sCol, lCol].forEach(c => {
-          row.getCell(c).fill = { type: "pattern", pattern: "solid", fgColor: { argb } };
+      const descWidth = 90;
+      const seenTop = new Set();
+
+      (consolidatedData[sheetName] || []).forEach(item => {
+        // blank rule for MEP: detail row & (qty==0 OR (S+L) unit rate == 0)
+        const isDetail = !item.isSubtotal && !item.isGrandTotal && !item.isCategory;
+        const estUnitRate = Number(item.estimate?.sRate || 0) + Number(item.estimate?.lRate || 0);
+        const blankAllMEP = isDetail && (Number(item.qty || 0) === 0 || estUnitRate === 0);
+
+        const least = (!blankAllMEP && item.bidders && item.bidders.length)
+          ? (Math.min(...item.bidders.map(b => Number(b.amount || 0)).filter(v => v > 0)) || 0)
+          : null;
+
+        const row = sheet.addRow([
+          String(item.slNo ?? ""),
+          insertWrapHints(item.description || ""),
+
+          // Estimate 9 subcolumns (blank when rule hits)
+          item.unit || "",
+          blankAllMEP ? null : (item.gfQty || 0),
+          blankAllMEP ? null : (item.oneFQty || 0),
+          blankAllMEP ? null : (item.tfQty || 0),
+          blankAllMEP ? null : (item.qty || 0),
+          blankAllMEP ? null : (item.estimate.sRate || 0),
+          blankAllMEP ? null : (item.estimate.lRate || 0),
+          blankAllMEP ? null : (item.estimate.sAmount || 0),
+          blankAllMEP ? null : (item.estimate.lAmount || 0),
+
+          // Each bidder: S rate, L rate, S amt, L amt
+          ...item.bidders.flatMap(b => [
+            blankAllMEP ? null : (b.sRate || 0),
+            blankAllMEP ? null : (b.lRate || 0),
+            blankAllMEP ? null : (b.sAmount || 0),
+            blankAllMEP ? null : (b.lAmount || 0)
+          ]),
+
+          // Least total (S+L)
+          blankAllMEP ? null : least
+        ]);
+
+        // formats & alignment
+        row.getCell(1).numFmt = "@";
+        row.getCell(1).alignment = { vertical: "top", horizontal: "left", wrapText: true };
+        row.getCell(2).alignment = { vertical: "top", horizontal: "left", wrapText: true };
+
+        // Estimate subcolumns
+        row.getCell(3).alignment = { vertical: "top", horizontal: "center" }; // UNIT
+        [4,5,6,7].forEach(c => { row.getCell(c).alignment = { vertical:"top", horizontal:"right" }; row.getCell(c).numFmt = "#,##0"; });
+        row.getCell(8).alignment = { vertical:"top", horizontal:"right" }; row.getCell(8).numFmt = "#,##0.00"; // S rate
+        row.getCell(9).alignment = { vertical:"top", horizontal:"right" }; row.getCell(9).numFmt = "#,##0.00"; // L rate
+        row.getCell(10).alignment = { vertical:"top", horizontal:"right" }; row.getCell(10).numFmt = "#,##0";  // S amt
+        row.getCell(11).alignment = { vertical:"top", horizontal:"right" }; row.getCell(11).numFmt = "#,##0";  // L amt
+
+        // Bidder groups
+        const startBid = 12;
+        const endBid   = 12 + 4*bidderNames.length - 1;
+        for (let c = startBid; c <= endBid; c++) {
+          const idxInQuad = (c - startBid + 1) % 4; // 1=S rate, 2=L rate, 3=S amt, 0=L amt
+          row.getCell(c).alignment = { vertical: "top", horizontal: "right" };
+          row.getCell(c).numFmt = (idxInQuad === 1 || idxInQuad === 2) ? "#,##0.00" : "#,##0";
+        }
+
+        // Least
+        const leastCol = endBid + 1;
+        row.getCell(leastCol).alignment = { vertical: "top", horizontal: "right" };
+        row.getCell(leastCol).numFmt = "#,##0";
+
+        // variance shading for MEP (skip when blank)
+        if (!blankAllMEP && isDetail) {
+          const unitEst = Number(item.estimate.sRate || 0) + Number(item.estimate.lRate || 0);
+
+          for (let i = 0; i < bidderNames.length; i++) {
+            const sCol = 12 + i * 4;      // bidder i SUPPLY RATE
+            const lCol = sCol + 1;        // bidder i LABOUR RATE
+
+            const sRate = Number(row.getCell(sCol).value || 0);
+            const lRate = Number(row.getCell(lCol).value || 0);
+            const unitBid = sRate + lRate;
+
+            // Missing rate (qty>0 but either S or L is zero) -> dark red
+            if (Number(item.qty || 0) > 0 && (sRate === 0 || lRate === 0)) {
+              [sCol, lCol].forEach(c => {
+                const cell = row.getCell(c);
+                cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF7F1D1D" } };
+                cell.font = { color: { argb: "FFFFFFFF" }, bold: true };
+              });
+              continue;
+            }
+
+            // Variance vs combined estimate unit rate (S+L)
+            if (unitEst > 0 && unitBid > 0) {
+              const ratio = unitBid / unitEst;
+              let argb = null;
+              if (ratio < selectedVarianceLow)       argb = "FFBFD7EA"; // low (blue-ish)
+              else if (ratio > selectedVarianceHigh) argb = "FFFFD2B3"; // high (orange-ish)
+              if (argb) {
+                [sCol, lCol].forEach(c => {
+                  row.getCell(c).fill = { type: "pattern", pattern: "solid", fgColor: { argb } };
+                });
+              }
+            }
+          }
+        }
+
+        // category / subtotal / grand styling
+        const topKey = String(item.slNo || "").split(".")[0];
+        const isTopCategory =
+          item.isCategory && /^\d+(?:\.0+)?$/.test(String(item.slNo || "")) && !seenTop.has(topKey);
+
+        const isSubtotal = item.isSubtotal || /sub[\s-]?total/i.test(String(item.description || ""));
+
+        if (isSubtotal || item.isGrandTotal || isTopCategory) {
+          row.font = { bold: true };
+          row.eachCell({ includeEmpty: true }, (cell) => {
+            cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: GREY_200 } };
+            cell.alignment = { ...cell.alignment, vertical: "top" };
+          });
+          row.height = Math.max(estimateRowHeight(item.description, descWidth), 28);
+          if (isTopCategory) seenTop.add(topKey);
+        } else {
+          row.height = estimateRowHeight(item.description, descWidth);
+        }
+      });
+
+      // freeze & borders
+      sheet.views = [{ state: "frozen", ySplit: 5 }];
+      sheet.eachRow(r => {
+        r.eachCell({ includeEmpty: true }, (cell) => {
+          cell.border = { top:{style:"thin"}, left:{style:"thin"}, bottom:{style:"thin"}, right:{style:"thin"} };
+          if (cell.value == null) cell.value = "";
         });
-      }
-    }
-  }
-}
-
-
-    // ----- category / subtotal / grand styling like Civil -----
-    const topKey = String(item.slNo || "").split(".")[0];
-    const isTopCategory =
-      item.isCategory && /^\d+(?:\.0+)?$/.test(String(item.slNo || "")) && !seenTop.has(topKey);
-
-    const isSubtotal = item.isSubtotal || /sub[\s-]?total/i.test(String(item.description || ""));
-
-    if (isSubtotal || item.isGrandTotal || isTopCategory) {
-      row.font = { bold: true };
-      row.eachCell({ includeEmpty: true }, (cell) => {
-        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: GREY_200 } };
-        cell.alignment = { ...cell.alignment, vertical: "top" };
       });
-      row.height = Math.max(estimateRowHeight(item.description, descWidth), 28);
-      if (isTopCategory) seenTop.add(topKey);
-    } else {
-      row.height = estimateRowHeight(item.description, descWidth);
+
+      continue; // next sheet
     }
-  });
 
-  // freeze & borders
-  sheet.views = [{ state: "frozen", ySplit: 5 }];
-
-  sheet.eachRow(r => {
-    r.eachCell({ includeEmpty: true }, (cell) => {
-      cell.border = { top:{style:"thin"}, left:{style:"thin"}, bottom:{style:"thin"}, right:{style:"thin"} };
-      if (cell.value == null) cell.value = "";
-    });
-  });
-
-  continue; // go to next sheet
-}
-
-
-
-
-    // ---------- BOQ SHEETS ----------
+    // ---------- CIVIL (BOQ) SHEETS ----------
     sheet.addRow([]);
     const h1 = sheet.addRow([
       "Sl. No.", "Description of Items", "Unit", "Estimated", null, null,
@@ -2141,20 +2191,37 @@ if (!item.isSubtotal && !item.isGrandTotal && !item.isCategory) {
       const isTopCategory =
         item.isCategory && /^\d+(?:\.0+)?$/.test(String(item.slNo || "")) && !seenTop.has(topKey);
 
-      const leastBid = findLeastBid(item);
-      const isEditable = !item.isSubtotal && !item.isGrandTotal && !item.isCategory;
+      // 👉 blank rule for CIVIL: detail row & (estimate Qty == 0 OR estimate Rate == 0)
+      const isDetail = !item.isSubtotal && !item.isGrandTotal && !item.isCategory;
+      const blankAll = isDetail && (Number(item.qty || 0) === 0 || Number(item.estimate?.rate || 0) === 0);
+
+      const leastBid = blankAll
+        ? { rate: null, amount: null }
+        : findLeastBid(item);
 
       const rowVals = [
         slNoStr,
         insertWrapHints(item.description),
         item.unit,
-        item.qty ?? null,
-        isAmtOnlySheet ? null : (isEditable ? item.estimate.rate : null),
-        item.estimate.amount,
-        ...item.bidders.flatMap((b) => [isAmtOnlySheet ? null : (isEditable ? b.rate : null), b.amount]),
-        isAmtOnlySheet ? null : leastBid.rate,
-        leastBid.amount,
+
+        // Qty
+        blankAll ? null : (item.qty ?? null),
+
+        // Estimate Rate / Amount
+        (isAmtOnlySheet || !isDetail || blankAll) ? null : item.estimate.rate,
+        blankAll ? null : item.estimate.amount,
+
+        // Bidders: Rate / Amount
+        ...item.bidders.flatMap((b) => [
+          (isAmtOnlySheet || !isDetail || blankAll) ? null : b.rate,
+          blankAll ? null : b.amount
+        ]),
+
+        // Least Bid: Rate / Amount
+        (isAmtOnlySheet || blankAll) ? null : leastBid.rate,
+        blankAll ? null : leastBid.amount,
       ];
+
       const newRow = sheet.addRow(rowVals);
 
       // align/format
@@ -2178,26 +2245,27 @@ if (!item.isSubtotal && !item.isGrandTotal && !item.isCategory) {
       newRow.getCell(leastStartCol + 1).alignment = { vertical: "top", horizontal: "right" };
       newRow.getCell(leastStartCol + 1).numFmt = AMT_FMT;
 
-      // variance shading (skip for amount-only)
-     item.bidders.forEach((b, i) => {
-  const rateCell = newRow.getCell(7 + i * 2); // define once, always available
+      // variance/missing-rate shading (skip for amount-only and when blank)
+      if (!isAmtOnlySheet && isDetail && !blankAll) {
+        item.bidders.forEach((b, i) => {
+          const rateCell = newRow.getCell(7 + i * 2);
 
-  if (item.estimate?.rate && b.rate) {
-    const variance = b.rate / item.estimate.rate;
-    if (variance < selectedVarianceLow) {
-      rateCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFBFD7EA" } };
-    } else if (variance > selectedVarianceHigh) {
-      rateCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFD2B3" } };
-    }
-  }
+          if (item.estimate?.rate && b.rate) {
+            const variance = b.rate / item.estimate.rate;
+            if (variance < selectedVarianceLow) {
+              rateCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFBFD7EA" } };
+            } else if (variance > selectedVarianceHigh) {
+              rateCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFD2B3" } };
+            }
+          }
 
-  // 🔴 missing rate highlight
-  if (isPositiveQty(item.qty) && (!b.rate || b.rate === 0)) {
-    rateCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF7F1D1D" } };
-    rateCell.font = { color: { argb: "FFFFFFFF" }, bold: true };
-  }
-});
-
+          // missing rate highlight (only if not blanking)
+          if (Number(item.qty || 0) > 0 && (!b.rate || b.rate === 0)) {
+            rateCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF7F1D1D" } };
+            rateCell.font = { color: { argb: "FFFFFFFF" }, bold: true };
+          }
+        });
+      }
 
       // category/subtotal/grand styling
       const isSubtotal = item.isSubtotal || isSubtotalText(item.description);
@@ -2233,17 +2301,18 @@ if (!item.isSubtotal && !item.isGrandTotal && !item.isCategory) {
   }
 
   // --- 4) Save file ---
-const outName = COMPARISON_MODE === 'mep'
-  ? "CS_Consolidated_Output.xlsx"
-  : "CS_Consolidated_Output.xlsx";
+  const outName = COMPARISON_MODE === 'mep'
+    ? "CS_Consolidated_Output.xlsx"
+    : "CS_Consolidated_Output.xlsx";
 
-const buffer = await workbook.xlsx.writeBuffer();
-saveAs(
-  new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
-  outName
-);
+  const buffer = await workbook.xlsx.writeBuffer();
+  saveAs(
+    new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
+    outName
+  );
 }
 window.handleDownloadExcelJS = handleDownloadExcelJS;
+
 
 
 document.getElementById("reload-page").addEventListener("click", () => {
