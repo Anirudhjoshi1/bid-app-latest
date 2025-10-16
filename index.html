@@ -5,17 +5,27 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Bid Comparison Application</title>
 
-  <!-- Tailwind (utility) + Excel libs (parsing + export) -->
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/exceljs/dist/exceljs.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/file-saver/dist/FileSaver.min.js"></script>
 
-  <!-- Inter font -->
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 
-  <!-- ====== FULL CSS (web view fixes) ====== -->
   <style>
+
+    /* QRO / RO / R/O rows */
+.qro-row td {
+  /* Tailwind violet-200 (#E9D5FF) with light transparency */
+  background: rgba(233, 213, 255, 0.32) !important;
+  /* optional: a faint border to sell the highlighter look */
+  border-color: rgba(233, 213, 255, 0.35) !important;
+}
+
+/* let text use your normal table color (removes pinkish cast) */
+.qro-row, .qro-row .val {
+  color: inherit !important;
+}
 
     /* 🔴 missing bidder rate (qty > 0 & rate not quoted) */
 .missing-rate {
@@ -208,30 +218,24 @@
       <p class="mt-4 text-lg text-gray-300">Upload your estimate and bidder Excel sheets to generate a detailed comparative statement.</p>
     </header>
 
-    <!-- Upload Section -->
-   <!-- Upload Section -->
-<div id="upload-section" class="bg-gray-800 p-8 rounded-2xl shadow-lg mb-10 border border-gray-700">
+    <div id="upload-section" class="bg-gray-800 p-8 rounded-2xl shadow-lg mb-10 border border-gray-700">
   <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-    <!-- Estimate -->
     <div class="space-y-2">
       <label for="estimate-file" class="block text-sm font-medium text-gray-200">📄 Estimate File (Baseline)</label>
       <input type="file" id="estimate-file" accept=".xlsx"
         class="block w-full text-sm text-gray-200 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:bg-indigo-200/20 file:text-indigo-200 hover:file:bg-indigo-200/30"/>
       
-      <!-- Show selected Estimate -->
       <div class="mt-3">
         <div class="text-xs text-gray-400 mb-1">Selected:</div>
         <div id="estimate-file-list" class="flex flex-wrap gap-2"></div>
       </div>
     </div>
 
-    <!-- Bidders -->
     <div class="space-y-2">
       <label for="bidder-files" class="block text-sm font-medium text-gray-200">👥 Bidder Files (Max 7)</label>
       <input type="file" id="bidder-files" accept=".xlsx" multiple
         class="block w-full text-sm text-gray-200 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:bg-violet-200/20 file:text-violet-200 hover:file:bg-violet-200/30"/>
       
-      <!-- Show selected Bidders -->
       <div class="mt-3">
         <div class="text-xs text-gray-400 mb-1">
           Selected Bidders (max 7):
@@ -243,7 +247,6 @@
   </div>
 
 
-      <!-- Variance Controls -->
       <div class="mt-8 grid grid-cols-1 md:grid-cols-2 gap-6">
         <div class="variance-input-group">
           <label for="lower-variance" class="variance-input-label">📉 Lower Variance Factor</label>
@@ -258,7 +261,6 @@
       </div>
       </div>
 
-      <!-- Action Buttons -->
       <div class="mt-10 flex flex-wrap justify-center gap-6">
         <button id="process-button"
           class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-6 rounded-lg shadow-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
@@ -271,7 +273,6 @@
             <button id="reload-page" class="reload-btn hidden" title="Reload Page">⟳</button>
       </div>
 
-      <!-- Loader -->
       <div id="loader" class="text-center mt-6 hidden">
         <div role="status" class="flex flex-col items-center gap-2">
           <svg class="w-8 h-8 text-indigo-400 animate-spin" viewBox="0 0 100 101" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -283,7 +284,6 @@
       </div>
     </div>
 
-    <!-- Output Section -->
     <div id="output-section" class="hidden">
       <div class="border-b border-gray-700">
         <nav id="tabs-container" class="-mb-px flex space-x-4 overflow-x-auto" aria-label="Tabs"></nav>
@@ -304,8 +304,7 @@
     </div>
   </div>
 
-  <!-- ====== JAVASCRIPT LOGIC ====== -->
-<script>
+  <script>
 
 
 
@@ -941,6 +940,9 @@ function normalizeSrNo(value) {
 /* ---------- Build consolidated structure (FIXED isCategory for MEP too) ---------- */
 
 /* ---------- Build consolidated structure (fixed bcfg typo + MEP category/abstract handling) ---------- */
+
+
+/* ---------- Totals ---------- */
 function consolidateAllData(estimateData, biddersData) {
   consolidatedData = {};
 
@@ -998,6 +1000,9 @@ function consolidateAllData(estimateData, biddersData) {
         let estSRate=0, estLRate=0, estSAmt=0, estLAmt=0;
         let gfQty=0, oneFQty=0, tfQty=0;
 
+        // detect remark qty in CIVIL (QRO/RO/R/O)
+        let remarkQtyText = "";
+
         if (isMEPSheet) {
           const f = extractMEPFields(row, cfg);
           qty               = f.qty;
@@ -1008,7 +1013,10 @@ function consolidateAllData(estimateData, biddersData) {
           gfQty    = f.gfQty;  oneFQty  = f.oneFQty;  tfQty = f.tfQty;
         } else {
           // CIVIL (Qty × Rate)
-          qty = parseQty(cfg.qtyCol != null ? row[cfg.qtyCol] : "");
+          const rawQtyCell   = (cfg.qtyCol != null) ? row[cfg.qtyCol] : "";
+          const maybeRemark  = detectRemarkQty(rawQtyCell);
+          remarkQtyText      = maybeRemark || "";
+          qty                = parseQty(rawQtyCell);
           if (cfg.assumeQty1) qty = 1;
 
           // treat ABSTRACT + R/D summary as amount-only lines
@@ -1032,6 +1040,9 @@ function consolidateAllData(estimateData, biddersData) {
           description,
           unit: row[cfg.unitCol] || "",
           qty,
+          // 👇 NEW: keep the exact remark text + a flag
+          qtyRemark: !!remarkQtyText,
+          qtyText: remarkQtyText || "",
           gfQty:   gfQty || 0,
           oneFQty: oneFQty || 0,
           tfQty:   tfQty || 0,
@@ -1078,7 +1089,7 @@ function consolidateAllData(estimateData, biddersData) {
               return (estimateKeySr && keySr && keySr === estimateKeySr);
             });
 
-            // 2) fallback description match (⚠️ fixed bcfg typo here)
+            // 2) fallback description match
             if (!match) {
               match = bidderSheet.find((bRow) => {
                 const keyDesc = (bcfg.descCol != null) ? normalizeDesc(bRow[bcfg.descCol]) : "";
@@ -1099,7 +1110,6 @@ function consolidateAllData(estimateData, biddersData) {
                 bSRate  = f.sRate;  bLRate = f.lRate;
                 bSAmt   = f.sAmt;   bLAmt  = f.lAmt;
               } else {
-                // for ABSTRACT and R/D summary, prefer amount
                 if (isAbstractRow || isRDSummaryLine) {
                   const byAmount = (bcfg.amountCol != null) ? parseNumber(match[bcfg.amountCol]) : 0;
                   const byCalc   = (qty || 0) * (parseNumber(match[bcfg.rateCol]) || 0);
@@ -1140,9 +1150,6 @@ function consolidateAllData(estimateData, biddersData) {
   // compute all totals & summary
   calculateAllTotals();
 }
-
-
-/* ---------- Totals ---------- */
 
 
 
@@ -1274,9 +1281,10 @@ function calculateAllTotals() {
         COMPARISON_MODE === "mep" ||
         (consolidatedData[sheetName]?._cfg && consolidatedData[sheetName]._cfg.isMEP);
 
+      // ⛔️ do NOT blank rows that have remark-qty (QRO/RO/R/O)
       if (!item.amountOnly) {
         const q = Number(item.qty || 0);
-        if (q === 0 && !isMEPSheet) {
+        if (q === 0 && !isMEPSheet && !item.qtyRemark) {
           item.estimate.rate = "";
           item.estimate.amount = "";
           item.estimate.rawAmount = "";
@@ -1354,6 +1362,7 @@ function calculateAllTotals() {
         item.estimate.amount = Number(item.estimate.rawAmount || 0);
         item.bidders.forEach((b) => (b.amount = Number(b.rawAmount || 0)));
       } else {
+        // CIVIL: here remark-qty rows keep their rate but qty=0, so amount will be 0
         const qty = Number(item.qty || 0);
         item.estimate.amount = qty * Number(item.estimate.rate || 0);
         item.bidders.forEach((b) => (b.amount = qty * Number(b.rate || 0)));
@@ -1407,7 +1416,7 @@ function calculateAllTotals() {
     // ➕ bind ABSTRACT rows to neighbor subtotals (above or below)
     linkAbstractsToNeighborSubtotals(sheetData);
 
-    // ---- 3) category totals (FIXED: also fill MEP S/L splits) ----
+    // ---- 3) category totals (CIVIL & MEP) ----
     const isMEPSheet_here =
       COMPARISON_MODE === "mep" || (sheetData?._cfg && sheetData._cfg.isMEP);
 
@@ -1438,14 +1447,14 @@ function calculateAllTotals() {
         };
       }
 
-      // Combined (works for both Civil & MEP)
+      // Combined
       const estAmt = Number(item.estimate?.amount || 0);
       categoryTotals[top].estimate += estAmt;
       item.bidders.forEach((b, i) => {
         categoryTotals[top].bidders[i] += Number(b.amount || 0);
       });
 
-      // S/L split for MEP so category rows show amounts in S/L columns
+      // S/L split for MEP
       if (isMEPSheet_here) {
         categoryTotals[top].sEst += Number(item.estimate?.sAmount || 0);
         categoryTotals[top].lEst += Number(item.estimate?.lAmount || 0);
@@ -1462,11 +1471,11 @@ function calculateAllTotals() {
       const cat = categoryTotals[key];
       if (!item.isCategory || !cat) return;
 
-      // always set combined totals
+      // combined totals
       item.estimate.amount = cat.estimate;
       item.bidders.forEach((b, i) => (b.amount = cat.bidders[i]));
 
-      // if MEP, also set S/L split so they render in S/L columns
+      // MEP split
       if (isMEPSheet_here) {
         item.estimate.sAmount = cat.sEst;
         item.estimate.lAmount = cat.lEst;
@@ -1480,7 +1489,44 @@ function calculateAllTotals() {
     // 🔹 if any ABSTRACT still has no numbers, fill by summing its details
     fillAbstractAmounts(sheetData);
 
-    // ---- 4) grand & summary pick ----
+    // ---- 4) Handle Not Quoted Items ----
+    const notQuotedItemsMap = new Map();
+    const notQuotedSubTotals = Array(bidderNames.length).fill(0);
+    const isMEPSheetForNq = COMPARISON_MODE === 'mep' || (sheetData?._cfg && sheetData._cfg.isMEP);
+
+    if (!isMEPSheetForNq) { // This logic is for CIVIL mode only
+        sheetData.forEach(item => {
+            const isDetail = !item.isSubtotal && !item.isGrandTotal && !item.isCategory && !item.isAbstract;
+            if (isDetail && Number(item.qty || 0) > 0) {
+                item.bidders.forEach((b, bidderIndex) => {
+                    if (!b.rate || Number(b.rate) === 0) {
+                        const estimateAmount = Number(item.estimate.amount || 0);
+                        if (estimateAmount > 0) {
+                            const key = item.slNo;
+
+                            if (!notQuotedItemsMap.has(key)) {
+                                notQuotedItemsMap.set(key, {
+                                    slNo: item.slNo,
+                                    description: item.description,
+                                    isNotQuotedItem: true,
+                                    bidders: Array(bidderNames.length).fill(null).map(() => ({ amount: '' })),
+                                    unit: '', qty: '', estimate: { rate: '', amount: '' },
+                                });
+                            }
+                            
+                            const nqRowData = notQuotedItemsMap.get(key);
+                            nqRowData.bidders[bidderIndex].amount = estimateAmount;
+                            
+                            notQuotedSubTotals[bidderIndex] += estimateAmount;
+                        }
+                    }
+                });
+            }
+        });
+    }
+    const notQuotedItemsForDisplay = Array.from(notQuotedItemsMap.values());
+    
+    // ---- 5) grand & summary pick ----
     const isMEPSheet =
       COMPARISON_MODE === "mep" ||
       (sheetData?._cfg && sheetData._cfg.isMEP);
@@ -1496,24 +1542,47 @@ function calculateAllTotals() {
     });
 
     if (!isMEPSheet) {
-      let grandRow = sheetData.find((r) => r.isGrandTotal);
-      if (!grandRow) {
-        grandRow = {
-          slNo: "",
-          description: "GRAND TOTAL",
-          unit: "",
-          qty: "",
-          estimate: { rate: 0, amount: 0 },
-          bidders: bidderNames.map((n) => ({ name: n, rate: 0, amount: 0 })),
-          isSubtotal: false,
-          isGrandTotal: true,
-          isCategory: false,
-          amountOnly: sheetData._isAmountOnly,
-        };
-        sheetData.push(grandRow);
-      }
-      grandRow.estimate.amount = grand.estimate;
-      grandRow.bidders.forEach((b, i) => (b.amount = grand.bidders[i]));
+        // Add "not quoted" subtotals to the bidders' grand totals
+        grand.bidders = grand.bidders.map((total, i) => total + notQuotedSubTotals[i]);
+        
+        let grandRowIndex = sheetData.findIndex((r) => r.isGrandTotal);
+        if (grandRowIndex === -1) {
+            grandRowIndex = sheetData.length;
+        }
+
+        const sectionToInsert = [];
+        if (notQuotedItemsForDisplay.length > 0) {
+            sectionToInsert.push({
+                slNo: '', description: 'Not Quoted Items', isCategory: true,
+                bidders: Array(bidderNames.length).fill(null).map(() => ({ amount: "" })),
+                estimate: { amount: '' }
+            });
+            sectionToInsert.push(...notQuotedItemsForDisplay);
+            sectionToInsert.push({
+                slNo: '', description: 'Sub-Total of Not Quoted Items', isSubtotal: true,
+                estimate: { amount: '' },
+                bidders: notQuotedSubTotals.map(amount => ({ amount: amount }))
+            });
+        }
+        
+        if (sectionToInsert.length > 0) {
+            sheetData.splice(grandRowIndex, 0, ...sectionToInsert);
+        }
+        
+        let grandRow = sheetData.find((r) => r.isGrandTotal);
+        if (!grandRow) {
+            grandRow = {
+                slNo: "", description: "GRAND TOTAL", unit: "", qty: "",
+                estimate: { rate: 0, amount: 0 },
+                bidders: bidderNames.map((n) => ({ name: n, rate: 0, amount: 0 })),
+                isSubtotal: false, isGrandTotal: true, isCategory: false,
+                amountOnly: sheetData._isAmountOnly,
+            };
+            sheetData.push(grandRow);
+        }
+        grandRow.estimate.amount = grand.estimate;
+        grandRow.bidders.forEach((b, i) => (b.amount = grand.bidders[i]));
+
     } else {
       const idx = sheetData.findIndex((r) => r.isGrandTotal);
       if (idx >= 0) sheetData.splice(idx, 1);
@@ -1530,6 +1599,13 @@ function calculateAllTotals() {
         summaryEst  = Number(totalAmtRow.estimate?.amount || 0);
         summaryBids = totalAmtRow.bidders.map((b) => Number(b.amount || 0));
       }
+    } else {
+        // For Civil, ensure the summary reflects the grand total INCLUDING not-quoted items
+        const finalGrandRow = sheetData.find(r => r.isGrandTotal);
+        if(finalGrandRow) {
+            summaryEst = Number(finalGrandRow.estimate.amount || 0);
+            summaryBids = finalGrandRow.bidders.map(b => Number(b.amount || 0));
+        }
     }
 
     summarySheetData[sheetName] = {
@@ -1537,7 +1613,7 @@ function calculateAllTotals() {
       bidderAmounts: summaryBids,
     };
 
-    // Roads/Drains breakdown (unchanged)
+    // Roads/Drains breakdown
     const rdRows = sheetData.filter((r) => r.isSummaryRow);
     if (rdRows.length) {
       const breakdown = {};
@@ -1551,7 +1627,7 @@ function calculateAllTotals() {
     }
   }
 
-  // ---- 5) build summary sheet ----
+  // ---- 6) build summary sheet ----
   buildSummarySheet(summarySheetData);
 }
 
@@ -1754,82 +1830,118 @@ function renderSummaryTable(thead, tbody, data) {
 
 
 function renderBoqTable(thead, tbody, data, sheetName) {
-  const amountOnlySheet = !!data._isAmountOnly;
+    // Generate the main header for the BOQ table.
+    const h1 = document.createElement("tr");
+    h1.innerHTML = `
+        <th rowspan="2" class="sticky-col-1 col-slno">Sl. No.</th>
+        <th rowspan="2" class="sticky-col-2 col-desc">Description of Items</th>
+        <th rowspan="2">Unit</th>
+        <th colspan="3">Estimated</th>
+        ${bidderNames.map(name => `<th colspan="2">${name}</th>`).join('')}
+        <th colspan="2">Least Bid</th>
+    `;
+    const h2 = document.createElement("tr");
+    h2.innerHTML = `
+        <th>Qty</th>
+        <th>Rate</th>
+        <th>Amount</th>
+        ${bidderNames.map(() => `<th>Rate</th><th>Amount</th>`).join('')}
+        <th>Rate</th>
+        <th>Amount</th>
+    `;
+    thead.append(h1, h2);
 
-  // (header creation is unchanged in your file)
+    const amountOnlySheet = !!data._isAmountOnly;
+    const { lower, upper } = getVarianceThresholds();
 
-  const { lower, upper } = getVarianceThresholds();
+    data.forEach((item, rowIndex) => {
+        const tr = document.createElement("tr");
+        if (item.isSubtotal) tr.className = "subtotal-row";
+        else if (item.isGrandTotal) tr.className = "grand-total-row";
+        else if (item.isCategory) tr.className = "category-header";
 
-  data.forEach((item, rowIndex) => {
-    const tr = document.createElement("tr");
-    if (item.isSubtotal) tr.className = "subtotal-row";
-    else if (item.isGrandTotal) tr.className = "grand-total-row";
-    else if (item.isCategory) tr.className = "category-header";
+        // --- NEW: Render "Not Quoted Item" rows differently ---
+        if (item.isNotQuotedItem) {
+            let bidderCellsHtml = "";
+            item.bidders.forEach(b => {
+                const amount = b.amount ? formatCurrency(b.amount) : '';
+                // These cells are for display only, not inputs
+                bidderCellsHtml += `
+                    <td class="compact-cell" colspan="2">
+                      <span class="label">Rate</span><span class="val"></span>
+                      <span class="label">Amt</span><span class="val">${amount}</span>
+                    </td>`;
+            });
+            
+            tr.innerHTML = `
+              <td class="sticky-col-1 col-slno">${item.slNo || ""}</td>
+              <td class="sticky-col-2 col-desc">${item.description || ""}</td>
+              <td></td> <td class="amount-cell"></td> <td class="compact-cell" colspan="2">
+                <span class="label">Rate</span><span class="val"></span>
+                <span class="label">Amt</span><span class="val"></span>
+              </td> ${bidderCellsHtml}
+              <td class="compact-cell least-rate-cell" colspan="2">
+                <span class="label">Rate</span><span class="val"></span>
+                <span class="label">Amt</span><span class="val"></span>
+              </td> `;
+            tbody.appendChild(tr);
+            return; // Done with this row, continue to the next item
+        }
 
-    const isEditable = !item.isSubtotal && !item.isGrandTotal && !item.isCategory;
+        const isEditable = !item.isSubtotal && !item.isGrandTotal && !item.isCategory;
+        const isAbstractRow = /\babstract\b/i.test(String(item.description || ""));
+        const showBlank = isEditable && !isAbstractRow && Number(item.qty || 0) === 0 && !item.qtyRemark;
+        if (isAbstractRow && !tr.className) tr.className = "subtotal-row";
 
-    // 🔹 do NOT blank ABSTRACT rows
-    const isAbstractRow = /\babstract\b/i.test(String(item.description || ""));
-    const showBlank = isEditable && !isAbstractRow && Number(item.qty || 0) === 0;
-    if (isAbstractRow && !tr.className) tr.className = "subtotal-row";
+        const least = isEditable ? findLeastBid(item) : { rate: 0, amount: 0 };
 
-    const least = isEditable ? findLeastBid(item) : { rate: 0, amount: 0 };
-
-    let bidderCellsHtml = "";
-    item.bidders.forEach((b, i) => {
-      let varianceClass = "";
-      if (!amountOnlySheet && isEditable && item.estimate.rate > 0 && b.rate > 0) {
-        const ratio = b.rate / item.estimate.rate;
-        if (ratio < lower) varianceClass = "bg-blue-100";
-        else if (ratio > upper) varianceClass = "bg-orange-100";
-      }
-
-      const missing = (!amountOnlySheet && isEditable && !showBlank && isPositiveQty(item.qty) && (!b.rate || b.rate === 0));
-
-      const rateHtml = amountOnlySheet
-        ? `<span class="val"></span>`
-        : (isEditable
-            ? `<input type="number"
+        let bidderCellsHtml = "";
+        item.bidders.forEach((b, i) => {
+            let varianceClass = "";
+            if (!amountOnlySheet && isEditable && item.estimate.rate > 0 && b.rate > 0) {
+                const ratio = b.rate / item.estimate.rate;
+                if (ratio < lower) varianceClass = "bg-blue-100";
+                else if (ratio > upper) varianceClass = "bg-orange-100";
+            }
+            const missing = (!amountOnlySheet && isEditable && !showBlank && isPositiveQty(item.qty) && (!b.rate || b.rate === 0));
+            
+            const rateHtml = amountOnlySheet ? `<span class="val"></span>` : (isEditable ?
+                `<input type="number"
                      class="rate-input ${varianceClass} ${missing ? "missing-rate" : ""} ${(b.rate||0)===0 ? "zero-value" : ""}"
                      value="${showBlank ? "" : (b.rate || 0)}"
                      data-row-index="${rowIndex}" data-bidder-index="${i}"
-                     onchange="handleRateChange(this, '${sheetName}')" />`
-            : `<span class="val ${showBlank ? "" : zeroCls(b.rate || 0)}">${showBlank ? "" : formatCurrency(b.rate || 0)}</span>`);
+                     onchange="handleRateChange(this, '${sheetName}')" />` :
+                `<span class="val ${showBlank ? "" : zeroCls(b.rate || 0)}">${showBlank ? "" : formatCurrency(b.rate || 0)}</span>`);
+            
+            const amountVal = (item.isSubtotal || item.isGrandTotal || item.isCategory) ? b.amount : (b.amount || 0);
 
-      bidderCellsHtml += `
-        <td class="compact-cell" colspan="2">
-          <span class="label">Rate</span>${rateHtml}
-          <span class="label">Amt</span><span class="val ${showBlank ? "" : zeroCls(b.amount || 0)}">${showBlank ? "" : formatCurrency(b.amount || 0)}</span>
-        </td>`;
+            bidderCellsHtml += `
+            <td class="compact-cell" colspan="2">
+              <span class="label">Rate</span>${rateHtml}
+              <span class="label">Amt</span><span class="val ${showBlank ? "" : zeroCls(amountVal)}">${showBlank ? "" : formatCurrency(amountVal)}</span>
+            </td>`;
+        });
+
+        const estRate = amountOnlySheet ? "" : (showBlank ? "" : formatCurrency(item.estimate.rate || 0));
+        const estAmt  = showBlank ? "" : formatCurrency(item.estimate.amount || 0);
+
+        tr.innerHTML = `
+          <td class="sticky-col-1 col-slno">${item.slNo || ""}</td>
+          <td class="sticky-col-2 col-desc">${item.description || ""}</td>
+          <td>${item.unit || ""}</td>
+          <td class="amount-cell ${showBlank ? "" : zeroCls(item.qty || 0)}">${showBlank ? "" : (item.qtyText || item.qty || "")}</td>
+          <td class="compact-cell" colspan="2">
+            <span class="label">Rate</span><span class="val ${showBlank ? "" : zeroCls(item.estimate.rate || 0)}">${amountOnlySheet ? "" : estRate}</span>
+            <span class="label">Amt</span><span class="val ${showBlank ? "" : zeroCls(item.estimate.amount || 0)}">${estAmt}</span>
+          </td>
+          ${bidderCellsHtml}
+          <td class="compact-cell least-rate-cell" colspan="2">
+            <span class="label">Rate</span><span class="val ${showBlank ? "" : zeroCls(least.rate)}">${amountOnlySheet ? "" : (showBlank ? "" : formatCurrency(least.rate))}</span>
+            <span class="label">Amt</span><span class="val ${showBlank ? "" : zeroCls(least.amount)}">${showBlank ? "" : formatCurrency(least.amount)}</span>
+          </td>
+        `;
+        tbody.appendChild(tr);
     });
-
-    const estRate = amountOnlySheet ? "" : (showBlank ? "" : formatCurrency(item.estimate.rate || 0));
-    const estAmt  = showBlank ? "" : formatCurrency(item.estimate.amount || 0);
-
-    tr.innerHTML = `
-      <td class="sticky-col-1 col-slno">${item.slNo || ""}</td>
-      <td class="sticky-col-2 col-desc">${item.description || ""}</td>
-      <td>${item.unit || ""}</td>
-
-      <!-- Qty -->
-      <td class="amount-cell ${showBlank ? "" : zeroCls(item.qty || 0)}">${showBlank ? "" : (item.qty || "")}</td>
-
-      <!-- Estimate -->
-      <td class="compact-cell" colspan="2">
-        <span class="label">Rate</span><span class="val ${showBlank ? "" : zeroCls(item.estimate.rate || 0)}">${amountOnlySheet ? "" : estRate}</span>
-        <span class="label">Amt</span><span class="val ${showBlank ? "" : zeroCls(item.estimate.amount || 0)}">${estAmt}</span>
-      </td>
-
-      ${bidderCellsHtml}
-
-      <!-- Least Bid -->
-      <td class="compact-cell least-rate-cell" colspan="2">
-        <span class="label">Rate</span><span class="val ${showBlank ? "" : zeroCls(least.rate)}">${amountOnlySheet ? "" : (showBlank ? "" : formatCurrency(least.rate))}</span>
-        <span class="label">Amt</span><span class="val ${showBlank ? "" : zeroCls(least.amount)}">${showBlank ? "" : formatCurrency(least.amount)}</span>
-      </td>
-    `;
-    tbody.appendChild(tr);
-  });
 }
 
 
@@ -2014,11 +2126,12 @@ function findLeastBid(item) {
     const min = valid.reduce((m, c) => (c.amount < m.amount ? c : m), valid[0]);
     return { rate: 0, amount: min.amount };
   } else {
-    if (!item.qty) return { rate: 0, amount: 0 };
-    const valid = item.bidders.filter((b) => b.rate > 0);
-    if (!valid.length) return { rate: 0, amount: 0 };
-    const min = valid.reduce((m, c) => (c.rate < m.rate ? c : m), valid[0]);
-    return { rate: min.rate, amount: min.rate * item.qty };
+    const considerRate = (item.qty > 0) || !!item.qtyRemark;
+if (!considerRate) return { rate: 0, amount: 0 };
+const valid = item.bidders.filter((b) => b.rate > 0);
+if (!valid.length) return { rate: 0, amount: 0 };
+const min = valid.reduce((m, c) => (c.rate < m.rate ? c : m), valid[0]);
+return { rate: min.rate, amount: (item.qty > 0 ? min.rate * item.qty : 0) };
   }
 }
 
@@ -2035,11 +2148,20 @@ function getVarianceThresholds() {
   return { lower, upper };
 }
 
+
+function detectRemarkQty(value) {
+  const s = String(value ?? "").trim();
+  return /^(?:QRO|RO|R\/O)$/i.test(s) ? s : null;   // return exact text if matches
+}
+
+
 function parseQty(value) {
-  if (typeof value === "string" && value.toUpperCase() === "QRO") return 0;
-  const parsedValue = parseFloat(String(value).replace(/[^0-9.-]+/g, ""));
+  const s = String(value ?? "").trim().toUpperCase();
+  if (/^(QRO|RO|R\/O)$/.test(s)) return 0;          // treat as zero numerically
+  const parsedValue = parseFloat(s.replace(/[^0-9.-]+/g, ""));
   return isNaN(parsedValue) ? 0 : parsedValue;
 }
+
 
 function formatCurrency(num) {
   if (typeof num !== "number" || !isFinite(num)) return "0";
@@ -2549,6 +2671,40 @@ async function handleDownloadExcelJS(projectNameArg, lowArg, highArg, scopeArg) 
     const seenTop = new Set();
 
     consolidatedData[sheetName].forEach((item) => {
+      
+      // ✅ START: Special handling for "Not Quoted Item" rows in Excel export
+      if (item.isNotQuotedItem) {
+        const rowData = [
+          formatSrNo(item.slNo),
+          insertWrapHints(item.description),
+          null, null, null, null, // Empty cells for Unit, Est Qty, Rate, Amount
+        ];
+
+        item.bidders.forEach(b => {
+          rowData.push(null); // Bidder Rate (empty)
+          rowData.push(b.amount || null); // Bidder Amount
+        });
+
+        rowData.push(null, null); // Least Rate, Least Amount (empty)
+
+        const newRow = sheet.addRow(rowData);
+        
+        // Basic formatting for the special row
+        newRow.getCell(1).numFmt = "@";
+        newRow.getCell(1).alignment = { vertical: "top", horizontal: "left", wrapText: true };
+        newRow.getCell(2).alignment = { vertical: "top", horizontal: "left", wrapText: true };
+        
+        for (let i = 0; i < bidderNames.length; i++) {
+          const amountCell = newRow.getCell(8 + i * 2);
+          amountCell.alignment = { vertical: "top", horizontal: "right" };
+          amountCell.numFmt = AMT_FMT;
+        }
+        
+        newRow.height = estimateRowHeight(item.description, descWidth);
+        return; // Skip the rest of the loop for this item
+      }
+      // ✅ END: Special handling
+
       const slNoStr = formatSrNo(item.slNo);
       const topKey  = String(item.slNo || "").split(".")[0];
       const isTopCategory =
@@ -2556,10 +2712,10 @@ async function handleDownloadExcelJS(projectNameArg, lowArg, highArg, scopeArg) 
 
       const isDetail = !item.isSubtotal && !item.isGrandTotal && !item.isCategory;
 
-      // 🔹 do NOT blank ABSTRACT rows
       const isAbstract = /\babstract\b/i.test(String(item.description || ""));
       const blankAll = !isAbstract && isDetail &&
-                       (Number(item.qty || 0) === 0 || Number(item.estimate?.rate || 0) === 0);
+                 (Number(item.qty || 0) === 0 || Number(item.estimate?.rate || 0) === 0) &&
+                 !item.qtyRemark;
 
       const leastBid = blankAll
         ? { rate: null, amount: null }
@@ -2569,7 +2725,7 @@ async function handleDownloadExcelJS(projectNameArg, lowArg, highArg, scopeArg) 
         slNoStr,
         insertWrapHints(item.description),
         item.unit,
-        blankAll ? null : (item.qty ?? null),
+        item.qtyRemark ? (item.qtyText || "0") : (blankAll ? null : (item.qty ?? null)),
         (isAmtOnlySheet || !isDetail || blankAll) ? null : item.estimate.rate,
         blankAll ? null : item.estimate.amount,
         ...item.bidders.flatMap((b) => [
@@ -2581,6 +2737,12 @@ async function handleDownloadExcelJS(projectNameArg, lowArg, highArg, scopeArg) 
       ];
 
       const newRow = sheet.addRow(rowVals);
+
+      if (item.qtyRemark) {
+        newRow.eachCell({ includeEmpty: true }, (cell) => {
+          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF5F3FF" } };; // violet-200
+        });
+      }
 
       // align/format
       newRow.getCell(1).numFmt = "@";
@@ -2673,16 +2835,11 @@ document.getElementById("reload-page").addEventListener("click", () => {
 
 
 
-<!-- Export Options Modal -->
-<!-- Export Options Modal (DARK) -->
 <div id="export-modal" class="fixed inset-0 z-[100] hidden">
-  <!-- backdrop -->
   <div class="absolute inset-0 bg-black/70" onclick="closeExportModal()"></div>
 
-  <!-- modal -->
   <div class="absolute inset-0 flex items-center justify-center p-4">
     <div class="w-full max-w-lg rounded-2xl bg-slate-900 text-gray-100 shadow-2xl border border-slate-700">
-      <!-- header -->
       <div class="flex items-center justify-between px-6 py-4 border-b border-slate-700">
         <h3 class="text-lg font-semibold">Export options</h3>
         <button
@@ -2691,9 +2848,7 @@ document.getElementById("reload-page").addEventListener("click", () => {
           aria-label="Close">&times;</button>
       </div>
 
-      <!-- body -->
       <div class="px-6 py-4 space-y-5">
-        <!-- Project name -->
         <div>
           <label for="modal-project" class="block text-sm font-medium text-gray-300">
             Project name
@@ -2714,7 +2869,6 @@ document.getElementById("reload-page").addEventListener("click", () => {
     placeholder="Enter scope of work" />
   <p class="text-xs text-gray-400 mt-1">This will also appear in the exported Excel file.</p>
 </div>
-        <!-- Variance -->
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label for="modal-low" class="block text-sm font-medium text-gray-300">Lower variance</label>
@@ -2734,12 +2888,10 @@ document.getElementById("reload-page").addEventListener("click", () => {
           </div>
         </div>
 
-        <!-- Inline validation -->
         <div id="modal-error"
              class="hidden rounded-lg bg-red-900/40 border border-red-700 px-3 py-2 text-sm text-red-200"></div>
       </div>
 
-      <!-- footer -->
       <div class="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-700">
         <button class="rounded-lg border border-slate-600 px-4 py-2 text-gray-200 hover:bg-slate-800"
                 onclick="closeExportModal()">Cancel</button>
@@ -2752,7 +2904,6 @@ document.getElementById("reload-page").addEventListener("click", () => {
 </div>
 
 
-<!-- Mode Picker Modal -->
 <div id="mode-modal" class="fixed inset-0 z-[90] hidden">
   <div class="absolute inset-0 bg-black/70" onclick="closeModeModal()"></div>
   <div class="absolute inset-0 flex items-center justify-center p-4">
