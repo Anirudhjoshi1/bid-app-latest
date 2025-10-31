@@ -490,7 +490,7 @@ const HEADER_SYNONYMS = {
     /^(?:item\s*)?no\.?$/i,           // Item No. / No.
     /^item\s*no/i
   ],
-  desc:   [/^description/i, /^item\s*description/i, /^desc$/i],
+  desc:   [/^description/i, /^item\s*description/i, /^desc$/i, /^particulars/i],
   unit:   [/^unit$/i, /^uom$/i, /^units?$/i],
   qty:    [/^qty$/i, /^quantity$/i, /^qtty$/i],
   rate:   [/^rate$/i, /^unit\s*rate$/i, /^quoted\s*rate$/i, /^basic\s*rate$/i],
@@ -852,9 +852,8 @@ document.getElementById("reload-page").addEventListener("click", () => {
 
 
 function normalizeName(s) {
-  return String(s || "").toLowerCase().replace(/\s+/g, " ").trim();
+  return String(s || "").toLowerCase().replace(/\s+/g, "").trim();
 }
-
 
 
 // read excel (formatted text, blanks -> "")
