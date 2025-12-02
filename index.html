@@ -483,18 +483,18 @@ const EXCLUDE_SHEETS = [/^summary$/i, /^measure/i];
 
 const HEADER_SYNONYMS = {
   slNo: [
-    /^(sr|sl)\.?\s*no\.?$/i,          // Sr.No. / Sl.No.
-    /^s\.?\s*no\.?$/i,                // S.No.
+    /^(sr|sl|si|s1)\.?\s*no\.?$/i,   // ✅ Added "s1" just in case
+    /^(sr|sl)\.?\s*no\.?$/i,
+    /^s\.?\s*no\.?$/i,
     /^s\s*no/i,
     /^serial/i,
-    /^(?:item\s*)?no\.?$/i,           // Item No. / No.
+    /^(?:item\s*)?no\.?$/i,
     /^item\s*no/i
   ],
-  desc:   [/^description/i, /^item\s*description/i, /^desc$/i, /^particulars/i],
+  desc:   [/^description/i, /^item\s*description/i, /^desc$/i, /^particulars/i],
   unit:   [/^unit$/i, /^uom$/i, /^units?$/i],
   qty:    [/^qty$/i, /^quantity$/i, /^qtty$/i],
   rate:   [/^rate$/i, /^unit\s*rate$/i, /^quoted\s*rate$/i, /^basic\s*rate$/i],
-  // ⬇️ no bare ^total$ here to avoid matching "TOTAL", "TOTAL QTY", etc.
   amount: [
     /^amount(?:\s*\(rs\.?\))?$/i,
     /^amt\.?$/i,
@@ -503,7 +503,6 @@ const HEADER_SYNONYMS = {
     /^amount\s*total$/i
   ]
 };
-
 
 const MEP_HEADER_SYNONYMS = {
   gf:   [/^gf$/i, /ground\s*floor/i],
@@ -532,20 +531,22 @@ function inferSheetConfigFromWorksheetMEP(worksheet) {
     const B = rows[r + 1] || [];
 
     // Core labels on row A
-    const sl   = findIdx(A, /^(sr|sl)\.?\s*no\.?$/i) >= 0 ? findIdx(A, /^(sr|sl)\.?\s*no\.?$/i) : findIdx(A, /^s\.?\s*no\.?$/i);
-    const desc = findIdx(A, /^d(?:escr|escription)/i);   // “Description”, “D E S C R I P T I O N”
+    // 🟢 FIXED: Use global synonym list to catch "SI. NO."
+    const sl   = A.findIndex(v => looksLike(v, HEADER_SYNONYMS.slNo)); 
+    
+    const desc = findIdx(A, /^d(?:escr|escription)/i);   
     const unit = findIdx(A, /^unit$/i);
     let   qty  = findIdx(A, /^(qty|quantity|qtty|total\s*q(?:ty)?|t\s*qty|academic\s*qty)$/i);
     const rate = findIdx(A, /^rate$/i);
     const amt  = findIdx(A, /^amount/i);
 
+    // ... (rest of the function remains the same)
     // Subheaders on row B (must sit under RATE/AMOUNT columns)
     const supRateCol = B.findIndex((v, i) => looks(v, /supply/i) && i >= 0 && looks(A[i], /^rate$/i));
     const insRateCol = B.findIndex((v, i) => looks(v, /install/i) && i >= 0 && looks(A[i], /^rate$/i));
     const supAmtCol  = B.findIndex((v, i) => looks(v, /supply/i) && i >= 0 && looks(A[i], /^amount/i));
     const insAmtCol  = B.findIndex((v, i) => looks(v, /install/i) && i >= 0 && looks(A[i], /^amount/i));
 
-    // Also allow qty label to live in row B sometimes
     if (qty < 0) qty = findIdx(B, /^(qty|quantity|qtty|total\s*q(?:ty)?|t\s*qty|academic\s*qty)$/i);
 
     const hasCore = (desc >= 0) && (qty >= 0 || supRateCol >= 0 || supAmtCol >= 0);
@@ -554,8 +555,8 @@ function inferSheetConfigFromWorksheetMEP(worksheet) {
     if (hasCore && hasAnyRatesAmts) {
       return {
         isMEP: true,
-        startRow: r + 2,           // data starts after the subheader row
-        simpleQtyOnly: true,       // no GF/1F/TF in this layout
+        startRow: r + 2,           
+        simpleQtyOnly: true,       
         slNoCol: (sl >= 0 ? sl : undefined),
         descCol: desc,
         unitCol: (unit >= 0 ? unit : undefined),
@@ -568,6 +569,7 @@ function inferSheetConfigFromWorksheetMEP(worksheet) {
     }
   }
 
+  // ... (keep the rest of the function: One-row fallback) ...
   // ---------- One-row MEP header fallback (plain “Supply Rate”, “Installation Amount”, etc.) ----------
   for (let r = 0; r < Math.min(30, rows.length); r++) {
     const row = rows[r] || [];
@@ -577,14 +579,16 @@ function inferSheetConfigFromWorksheetMEP(worksheet) {
       const cell = String(row[c]).trim();
       if (!cell) continue;
 
-      if (/^(sr|sl)\.?\s*no\.?$|^s\.?\s*no\.?$/i.test(cell)) found.slNoCol = c;
-      if (/^d(?:escr|escription)/i.test(cell))               found.descCol = c;
-      if (/^unit$/i.test(cell))                              found.unitCol = c;
+      // 🟢 FIXED: Use global synonym list here too
+      if (looksLike(cell, HEADER_SYNONYMS.slNo)) found.slNoCol = c;
+      
+      if (/^d(?:escr|escription)/i.test(cell))                found.descCol = c;
+      if (/^unit$/i.test(cell))                               found.unitCol = c;
       if (/^(qty|quantity|qtty|total\s*q(?:ty)?|t\s*qty|academic\s*qty)$/i.test(cell)) found.qtyCol = c;
 
-      if (/^supply\s*rate$/i.test(cell) || /^s\.?\s*rate$/i.test(cell))        found.supplyRateCol = c;
+      if (/^supply\s*rate$/i.test(cell) || /^s\.?\s*rate$/i.test(cell))         found.supplyRateCol = c;
       if (/^labou?r\s*rate$/i.test(cell) || /^install(?:ation)?\s*rate$/i.test(cell)) found.labourRateCol = c;
-      if (/^supply\s*amount$/i.test(cell) || /^s\.?\s*amt$/i.test(cell))       found.supplyAmountCol = c;
+      if (/^supply\s*amount$/i.test(cell) || /^s\.?\s*amt$/i.test(cell))        found.supplyAmountCol = c;
       if (/^labou?r\s*amount$/i.test(cell) || /^install(?:ation)?\s*amount$/i.test(cell)) found.labourAmountCol = c;
     }
 
@@ -594,12 +598,16 @@ function inferSheetConfigFromWorksheetMEP(worksheet) {
     }
   }
 
-  return null; // let the civil detector try next
+  return null; 
+}
+
+// ✅ NEW: Removes BOM and non-printable characters before checking
+function looksLike(name, patterns) {
+  const clean = String(name || "").replace(/^\uFEFF/, "").trim(); // Strip BOM & whitespace
+  return patterns.some(re => re.test(clean));
 }
 
 
-
-function looksLike(name, patterns){ return patterns.some(re => re.test(String(name||"").trim())); }
 function normalizeDesc(s){
   return String(s ?? "")
     .toLowerCase()
@@ -1033,6 +1041,7 @@ function consolidateAllData(estimateData, biddersData) {
 
         // mark top-level numbers (1/2/3/…) as category for BOTH Civil & MEP
         const isTopNumber = /^\d+(?:\.0+)?$/.test(slNo);
+        const hasQty = qty > 0 || !!remarkQtyText;
 
         const item = {
           slNo,
@@ -1054,10 +1063,11 @@ function consolidateAllData(estimateData, biddersData) {
             sAmount: estSAmt  || 0,
             lAmount: estLAmt  || 0
           },
+          
           bidders: [],
           isSubtotal:   SUBTOTAL_RE.test(description) || TOTAL_AMOUNT_RE.test(description) || TOTAL_OF_RE.test(description),
           isGrandTotal: GRAND_RE.test(description),
-          isCategory:   (!isAmountOnlySheet && isTopNumber),
+          isCategory: (!isAmountOnlySheet && isTopNumber && !hasQty),
           amountOnly:   isMEPSheet ? false : (isAmountOnlySheet || isRDSummaryLine || isAbstractRow),
           isSummaryRow: !!isRDSummaryLine,
           isAbstract:   !!isAbstractRow
@@ -2410,7 +2420,7 @@ async function handleDownloadExcelJS(projectNameArg, lowArg, highArg, scopeArg) 
       const h1 = sheet.addRow([
         "Sr.No.", "Description of Work",
         "Estimate", ...(simpleMEP ? Array(6 - 1).fill(null) : Array(9 - 1).fill(null)),
-        ...bidderNames.flatMap(() => ["", "", "", ""]),
+        ...bidderNames.flatMap(n => [n, "", "", ""]),
         "Least Amount"
       ]);
       const h2 = sheet.addRow(
