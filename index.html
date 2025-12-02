@@ -1953,7 +1953,6 @@ function renderBoqTable(thead, tbody, data, sheetName) {
     });
 }
 
-
 function renderBoqTableMEP(thead, tbody, data, sheetName) {
   const cfg = data._cfg || {};
   const SIMPLE = !!cfg.simpleQtyOnly || (!cfg.gfCol && !cfg.oneFCol && !cfg.tfCol);
@@ -2010,26 +2009,45 @@ function renderBoqTableMEP(thead, tbody, data, sheetName) {
     const least = (!item.isSubtotal && !item.isGrandTotal && !item.isCategory) ? findLeastBid(item) : { amount: 0 };
 
     let bidderCellsHtml = "";
+    
     item.bidders.forEach((b, bidderIndex) => {
-      const unitEst = Number(item.estimate.sRate || 0) + Number(item.estimate.lRate || 0);
-      const unitBid = Number(b.sRate || 0) + Number(b.lRate || 0);
-      let sClass = "", lClass = "";
-      if (unitEst > 0 && unitBid > 0) {
-        const ratio = unitBid / unitEst;
-        if (ratio < lower) { sClass = "bg-blue-100"; lClass = "bg-blue-100"; }
-        else if (ratio > upper) { sClass = "bg-orange-100"; lClass = "bg-orange-100"; }
+      // 1. Get Values
+      const sEst = Number(item.estimate.sRate || 0);
+      const lEst = Number(item.estimate.lRate || 0);
+      const sBid = Number(b.sRate || 0);
+      const lBid = Number(b.lRate || 0);
+      const hasQty = Number(item.qty || 0) > 0;
+
+      let sClass = "";
+      let lClass = "";
+
+      // 2. Supply Variance (Independent)
+      if (sEst > 0 && sBid > 0) {
+        const ratio = sBid / sEst;
+        if (ratio < lower) sClass = "bg-blue-100";
+        else if (ratio > upper) sClass = "bg-orange-100";
       }
-      const missS = (Number(item.qty || 0) > 0) && !b.sRate;
-      const missL = (Number(item.qty || 0) > 0) && !b.lRate;
+
+      // 3. Installation Variance (Independent)
+      if (lEst > 0 && lBid > 0) {
+        const ratio = lBid / lEst;
+        if (ratio < lower) lClass = "bg-blue-100";
+        else if (ratio > upper) lClass = "bg-orange-100";
+      }
+
+      // 4. Missing Rate (Red) - Independent check for 0
+      // If Qty > 0 and the specific rate is 0, flag it as missing/red
+      const missS = hasQty && sBid === 0;
+      const missL = hasQty && lBid === 0;
 
       bidderCellsHtml += `
         <td class="amount-cell">
-          <input type="number" class="rate-input ${sClass} ${missS ? "missing-rate":""}"
+          <input type="number" class="rate-input ${sClass} ${missS ? "missing-rate" : ""}"
                  value="${b.sRate || 0}"
                  onchange="handleMEPRateChange(this,'${sheetName}',${rowIndex},${bidderIndex},'s')" />
         </td>
         <td class="amount-cell">
-          <input type="number" class="rate-input ${lClass} ${missL ? "missing-rate":""}"
+          <input type="number" class="rate-input ${lClass} ${missL ? "missing-rate" : ""}"
                  value="${b.lRate || 0}"
                  onchange="handleMEPRateChange(this,'${sheetName}',${rowIndex},${bidderIndex},'l')" />
         </td>
@@ -2067,7 +2085,6 @@ function renderBoqTableMEP(thead, tbody, data, sheetName) {
     tbody.appendChild(tr);
   });
 }
-
 
 /* ===================== Utils ===================== */
 function handleRateChange(input, sheetName) {
@@ -2538,35 +2555,51 @@ async function handleDownloadExcelJS(projectNameArg, lowArg, highArg, scopeArg) 
           row.getCell(leastCol).alignment = { vertical: "top", horizontal: "right" };
           row.getCell(leastCol).numFmt = AMT_FMT;
 
-          // variance + missing-rate shading (unchanged)
-          if (!blankAllMEP && isDetail) {
-            const unitEst = Number(item.estimate.sRate || 0) + Number(item.estimate.lRate || 0);
-            for (let i = 0; i < bidderNames.length; i++) {
-              const sCol = startBid + i*4;
-              const lCol = sCol + 1;
-              const sRate = Number(row.getCell(sCol).value || 0);
-              const lRate = Number(row.getCell(lCol).value || 0);
-              const unitBid = sRate + lRate;
+       // ... inside simpleMEP block ...
+if (!blankAllMEP && isDetail) {
+  // 1. Get separate Estimate rates
+  const sEst = Number(item.estimate.sRate || 0);
+  const lEst = Number(item.estimate.lRate || 0);
 
-              if (Number(item.qty || 0) > 0 && (sRate === 0 || lRate === 0)) {
-                [sCol, lCol].forEach(c => {
-                  const cell = row.getCell(c);
-                  cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF7F1D1D" } };
-                  cell.font = { color: { argb: "FFFFFFFF" }, bold: true };
-                });
-                continue;
-              }
-              if (unitEst > 0 && unitBid > 0) {
-                const ratio = unitBid / unitEst;
-                let argb = null;
-                if (ratio < selectedVarianceLow)       argb = "FFBFD7EA";
-                else if (ratio > selectedVarianceHigh) argb = "FFFFD2B3";
-                if (argb) [sCol, lCol].forEach(c => {
-                  row.getCell(c).fill = { type: "pattern", pattern: "solid", fgColor: { argb } };
-                });
-              }
-            }
-          }
+  for (let i = 0; i < bidderNames.length; i++) {
+    const sCol = startBid + i * 4;
+    const lCol = sCol + 1;
+    const sRate = Number(row.getCell(sCol).value || 0);
+    const lRate = Number(row.getCell(lCol).value || 0);
+
+    // 2. Apply Supply Variance INDEPENDENTLY
+    if (sEst > 0 && sRate > 0) {
+      const ratio = sRate / sEst;
+      if (ratio < selectedVarianceLow) 
+        row.getCell(sCol).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFBFD7EA" } }; // Blue
+      else if (ratio > selectedVarianceHigh) 
+        row.getCell(sCol).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFD2B3" } }; // Orange
+    }
+
+    // 3. Apply Installation Variance INDEPENDENTLY
+    if (lEst > 0 && lRate > 0) {
+      const ratio = lRate / lEst;
+      if (ratio < selectedVarianceLow) 
+        row.getCell(lCol).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFBFD7EA" } }; // Blue
+      else if (ratio > selectedVarianceHigh) 
+        row.getCell(lCol).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFD2B3" } }; // Orange
+    }
+
+    // 4. Missing Rate Check (Red) - Overrides previous colors if 0
+    if (Number(item.qty || 0) > 0) {
+      if (sRate === 0) {
+        const cell = row.getCell(sCol);
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF7F1D1D" } };
+        cell.font = { color: { argb: "FFFFFFFF" }, bold: true };
+      }
+      if (lRate === 0) {
+        const cell = row.getCell(lCol);
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF7F1D1D" } };
+        cell.font = { color: { argb: "FFFFFFFF" }, bold: true };
+      }
+    }
+  }
+}
         } else {
           // complex (GF/1F/TF/TQTY) formatting — unchanged...
           row.getCell(3).alignment = { vertical:"top", horizontal:"center" };
@@ -2587,34 +2620,51 @@ async function handleDownloadExcelJS(projectNameArg, lowArg, highArg, scopeArg) 
           row.getCell(leastCol).alignment = { vertical: "top", horizontal: "right" };
           row.getCell(leastCol).numFmt = AMT_FMT;
 
-          if (!blankAllMEP && isDetail) {
-            const unitEst = Number(item.estimate.sRate || 0) + Number(item.estimate.lRate || 0);
-            for (let i = 0; i < bidderNames.length; i++) {
-              const sCol = 12 + i*4;
-              const lCol = sCol + 1;
-              const sRate = Number(row.getCell(sCol).value || 0);
-              const lRate = Number(row.getCell(lCol).value || 0);
-              const unitBid = sRate + lRate;
+        // ... inside the complex MEP block ...
+            if (!blankAllMEP && isDetail) {
+  // 1. Get separate Estimate rates
+  const sEst = Number(item.estimate.sRate || 0);
+  const lEst = Number(item.estimate.lRate || 0);
 
-              if (Number(item.qty || 0) > 0 && (sRate === 0 || lRate === 0)) {
-                [sCol, lCol].forEach(c => {
-                  const cell = row.getCell(c);
-                  cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF7F1D1D" } };
-                  cell.font = { color: { argb: "FFFFFFFF" }, bold: true };
-                });
-                continue;
-              }
-              if (unitEst > 0 && unitBid > 0) {
-                const ratio = unitBid / unitEst;
-                let argb = null;
-                if (ratio < selectedVarianceLow)       argb = "FFBFD7EA";
-                else if (ratio > selectedVarianceHigh) argb = "FFFFD2B3";
-                if (argb) [sCol, lCol].forEach(c => {
-                  row.getCell(c).fill = { type: "pattern", pattern: "solid", fgColor: { argb } };
-                });
-              }
-            }
-          }
+  for (let i = 0; i < bidderNames.length; i++) {
+    const sCol = 12 + i * 4;
+    const lCol = sCol + 1;
+    const sRate = Number(row.getCell(sCol).value || 0);
+    const lRate = Number(row.getCell(lCol).value || 0);
+
+    // 2. Apply Supply Variance INDEPENDENTLY
+    if (sEst > 0 && sRate > 0) {
+      const ratio = sRate / sEst;
+      if (ratio < selectedVarianceLow) 
+        row.getCell(sCol).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFBFD7EA" } };
+      else if (ratio > selectedVarianceHigh) 
+        row.getCell(sCol).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFD2B3" } };
+    }
+
+    // 3. Apply Installation Variance INDEPENDENTLY
+    if (lEst > 0 && lRate > 0) {
+      const ratio = lRate / lEst;
+      if (ratio < selectedVarianceLow) 
+        row.getCell(lCol).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFBFD7EA" } };
+      else if (ratio > selectedVarianceHigh) 
+        row.getCell(lCol).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFD2B3" } };
+    }
+
+    // 4. Missing Rate Check (Red) - Overrides previous colors if 0
+    if (Number(item.qty || 0) > 0) {
+      if (sRate === 0) {
+        const cell = row.getCell(sCol);
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF7F1D1D" } };
+        cell.font = { color: { argb: "FFFFFFFF" }, bold: true };
+      }
+      if (lRate === 0) {
+        const cell = row.getCell(lCol);
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF7F1D1D" } };
+        cell.font = { color: { argb: "FFFFFFFF" }, bold: true };
+      }
+    }
+  }
+}
         }
 
         // 🔹 treat ABSTRACT like subtotal for styling
