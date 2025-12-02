@@ -308,6 +308,54 @@
 
 
 
+    /* --- ERROR MODAL FUNCTIONS --- */
+function showErrorModal(message, tip) {
+  document.getElementById("error-msg-text").textContent = message;
+  document.getElementById("error-tip-text").textContent = tip || "Please check your Excel files and try again.";
+  document.getElementById("error-modal").classList.remove("hidden");
+  document.getElementById("loader").classList.add("hidden"); // Hide loader if error
+}
+
+function closeErrorModal() {
+  document.getElementById("error-modal").classList.add("hidden");
+}
+
+/* --- VALIDATION LOGIC --- */
+function validateSheets(estimateData, biddersData) {
+  const estSheets = Object.keys(estimateData).filter(k => k !== "Summary");
+  
+  biddersData.forEach((bidder, idx) => {
+    const bidderName = bidderNames[idx];
+    const bidderSheets = Object.keys(bidder);
+
+    estSheets.forEach(estKey => {
+      // If bidder is missing a sheet that exists in estimate
+      if (!bidder[estKey]) {
+        
+        // Check for "Similar" names to give a hint
+        const similar = bidderSheets.find(bk => bk.includes(estKey) || estKey.includes(bk));
+        
+        let msg = `Critical Error: Bidder "${bidderName}" is missing the sheet matching "${displayNameFor(estKey)}".`;
+        let tip = `The Estimate file has a sheet named "${displayNameFor(estKey)}", but the Bidder file does not.\n\n`;
+        
+        if (similar) {
+          tip += `Found a similar sheet in Bidder file: "${displayNameFor(similar)}".\nPlease rename it to match exactly.`;
+        } else {
+          tip += `Please ensure all Bidders have the same sheet names as the Estimate.`;
+        }
+        
+        throw { message: msg, tip: tip }; // Throw custom error object
+      }
+    });
+  });
+}
+
+
+// 🟢 Global variable to track what the app is doing
+let processingContext = "Ready";
+
+
+
 let selectedEstimateFile = null;
 let selectedBidderFiles = [];
 
@@ -447,6 +495,39 @@ async function submitExportModal() {
     setUiBusy(false);                   // hide spinner
     if (exportBtn) exportBtn.disabled = false;
   }
+}
+
+
+function validateSheets(estimateData, biddersData) {
+  // Get list of data sheets (exclude Summary)
+  const estSheets = Object.keys(estimateData).filter(k => k !== "Summary");
+  
+  biddersData.forEach((bidder, idx) => {
+    const bidderName = bidderNames[idx];
+    
+    estSheets.forEach(estKey => {
+      // If the bidder does NOT have the sheet found in Estimate
+      if (!bidder[estKey]) {
+        
+        // Check if there is a sheet with a similar name (e.g. "CivilWorks" vs "Civil Works")
+        // Note: Your normalizeName function handles spaces now, but this catches other typos
+        const bidderSheets = Object.keys(bidder);
+        const similar = bidderSheets.find(bk => bk.includes(estKey) || estKey.includes(bk));
+        
+        let msg = `Missing Sheet: The Bidder "${bidderName}" does not have a sheet matching "${displayNameFor(estKey)}".`;
+        let tip = `The Estimate file has a sheet named "${displayNameFor(estKey)}".\n`;
+        
+        if (similar) {
+          tip += `\nWe found a similar sheet named "${displayNameFor(similar)}".\nPlease rename it in the Excel file to match exactly.`;
+        } else {
+          tip += `\nPlease check the Excel file for "${bidderName}" and ensure sheet names match the Estimate.`;
+        }
+        
+        // Throw custom error to be caught by handleProcessFiles
+        throw { message: msg, tip: tip };
+      }
+    });
+  });
 }
 
 
@@ -807,56 +888,79 @@ async function handleProcessFiles() {
   const estimateFile = estimateFileInput.files[0];
   const bidderFiles = bidderFilesInput.files;
 
+  // 1. Basic Input Validation (using Error Modal for consistency)
   if (!estimateFile || bidderFiles.length === 0) {
-    alert("Please select an estimate file and at least one bidder file.");
+    showErrorModal("Missing Files", "Please select an estimate file and at least one bidder file.");
     return;
   }
   if (bidderFiles.length > 7) {
-    alert("You can select a maximum of 7 bidder files.");
+    showErrorModal("Too Many Files", "You can select a maximum of 7 bidder files.");
     return;
   }
 
   loader.classList.remove("hidden");
   outputSection.classList.add("hidden");
 
+  // 🔴 START ERROR CATCHING
   try {
+    processingContext = "Preparing Bidder Names";
     bidderNames = Array.from(bidderFiles).map((f) =>
       f.name.split(".")[0].replace(/DGG_BIDDER_/i, "BIDDER ").trim()
     );
 
+    // 2. Parse Estimate
+    processingContext = `Parsing Estimate File: ${estimateFile.name}`;
     const estimateData = await parseExcelFile(estimateFile, true);
-    const biddersData = await Promise.all(Array.from(bidderFiles).map((file) => parseExcelFile(file, false)));
 
-    // const boqSheetNames = Object.keys(estimateData);
-    // processedSheetNames = ["Summary", ...boqSheetNames];
+    // 3. Parse Bidders
+    processingContext = "Parsing Bidder Files";
+    const biddersData = await Promise.all(Array.from(bidderFiles).map((file, i) => {
+      // Update context for specific file if it fails here
+      processingContext = `Parsing Bidder File: ${file.name}`;
+      return parseExcelFile(file, false);
+    }));
 
+    // 4. 🟢 VALIDATION STEP (Checks for sheet name mismatches)
+    processingContext = "Validating Sheet Names across files";
+    validateSheets(estimateData, biddersData); 
+
+    // 5. Consolidate
+    processingContext = "Consolidating Data & Calculating Totals";
     processedSheetNames = [
-  "Summary",
-  ...estimateSheetKeysOrdered.filter((key) => !!estimateData[key])
-];
+      "Summary",
+      ...estimateSheetKeysOrdered.filter((key) => !!estimateData[key])
+    ];
 
     consolidateAllData(estimateData, biddersData);
 
+    // 6. Update UI
+    processingContext = "Rendering User Interface";
     const { lower, upper } = getVarianceThresholds();
     document.getElementById("lower-variance-label").textContent = `Low < ${lower}`;
     document.getElementById("upper-variance-label").textContent = `High > ${upper}`;
 
     renderUI();
+    
     outputSection.classList.remove("hidden");
     downloadButton.classList.remove("hidden");
     document.getElementById("reload-page").classList.remove("hidden");
     processButton.classList.add("hidden"); 
+
   } catch (e) {
-    console.error("Error during file processing:", e);
-    alert("An error occurred while processing the files. Please check the console for details.");
+    console.error("App Error:", e);
+    
+    // Determine the error message
+    const msg = e.message || "Unknown Error";
+    
+    // Determine the tip: Use custom tip if available, otherwise show where it happened
+    const tip = e.tip || `Error occurred during: ${processingContext}.\nCheck the browser console (F12) for technical details.`;
+    
+    showErrorModal(msg, tip);
   } finally {
     loader.classList.add("hidden");
+    processingContext = "Idle";
   }
 }
-
-document.getElementById("reload-page").addEventListener("click", () => {
-  window.location.reload();
-});
 
 
 function normalizeName(s) {
@@ -2980,6 +3084,45 @@ document.getElementById("reload-page").addEventListener("click", () => {
       <div class="px-6 py-4 border-t border-slate-700 flex justify-end">
         <button class="rounded-lg border border-slate-600 px-4 py-2 text-gray-200 hover:bg-slate-800"
                 onclick="closeModeModal()">Cancel</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+
+
+<!-- ERROR DILOUGE BOX -->
+<div id="error-modal" class="fixed inset-0 z-[110] hidden">
+  <div class="absolute inset-0 bg-black/80 backdrop-blur-sm" onclick="closeErrorModal()"></div>
+  <div class="absolute inset-0 flex items-center justify-center p-4">
+    <div class="w-full max-w-2xl rounded-2xl bg-slate-900 text-gray-100 shadow-2xl border border-red-500">
+      
+      <div class="flex items-center justify-between px-6 py-4 border-b border-red-900 bg-red-900/20">
+        <h3 class="text-xl font-bold text-red-100 flex items-center gap-2">
+          ⚠️ Application Error
+        </h3>
+        <button class="text-gray-400 hover:text-white text-2xl" onclick="closeErrorModal()">&times;</button>
+      </div>
+
+      <div class="px-6 py-6 space-y-4">
+        <div>
+          <p class="text-gray-300">The application encountered a problem. Here is exactly what went wrong:</p>
+        </div>
+
+        <div class="bg-red-950/40 border border-red-900 rounded-lg p-4">
+          <label class="block text-xs font-bold text-red-400 uppercase mb-1">Problem Description</label>
+          <p id="error-msg-text" class="text-red-100 font-mono text-sm whitespace-pre-wrap break-words"></p>
+        </div>
+
+        <div class="bg-slate-950 border border-slate-700 rounded-lg p-4">
+          <label class="block text-xs font-bold text-indigo-400 uppercase mb-1">Error Location / Tip</label>
+          <p id="error-tip-text" class="text-indigo-200 text-sm"></p>
+        </div>
+      </div>
+
+      <div class="px-6 py-4 border-t border-slate-700 flex justify-end">
+        <button onclick="closeErrorModal()" class="bg-slate-700 hover:bg-slate-600 text-white px-5 py-2 rounded-lg">Close</button>
       </div>
     </div>
   </div>
