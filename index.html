@@ -307,6 +307,190 @@
   <script>
 
 
+    /* --- VALIDATION LOGIC ENGINE --- */
+
+let validationErrors = [];
+
+// Helper to normalize strings for comparison (removes spaces, lowercase)
+const normStr = (str) => String(str || "").toLowerCase().replace(/[^a-z0-9]/g, "")
+
+
+function isLikelyHeader(cellValue) {
+  if (!cellValue) return false;
+  const s = String(cellValue).trim();
+  // If it's a pure number like "15000" or "1.01", it's likely data, not a header
+  if (/^[\d,.]+$/.test(s)) return false; 
+  return true;
+}
+
+function performDetailedValidation(estimateData, biddersData) {
+  validationErrors = []; // Reset
+  const sheetKeys = Object.keys(estimateData).filter(k => k !== "Summary");
+
+  biddersData.forEach((bidderData, bIdx) => {
+    const bidderName = bidderNames[bIdx];
+
+    sheetKeys.forEach(sheetKey => {
+      const estRows = estimateData[sheetKey];
+      const bidRows = bidderData[sheetKey];
+      const displaySheet = displayNameFor(sheetKey);
+
+      if (!bidRows) {
+        validationErrors.push({
+          bidder: bidderName,
+          sheet: displaySheet,
+          type: "CRITICAL: Missing Sheet",
+          location: "N/A",
+          details: `The sheet "${displaySheet}" exists in Estimate but not in this Bidder file.`
+        });
+        return; 
+      }
+
+      const estCfg = estRows._cfg || DEFAULT_BOQ_CONFIG;
+      const bidCfg = bidRows._cfg || estCfg;
+
+      // ... (Header Validation Logic Skipped for brevity - keep your existing header logic here if you want) ...
+
+      // --- 3. Row-by-Row / Sl.No Validation ---
+      
+      const estMap = new Map();
+      estRows.forEach(row => {
+        const sl = normalizeSrNo(row[estCfg.slNoCol]);
+        if (!sl) return; // FIX: Strict check (0 or "" are skipped)
+        
+        if(row[estCfg.descCol]) {
+            estMap.set(sl, {
+                desc: String(row[estCfg.descCol]).trim(),
+                unit: String(row[estCfg.unitCol] || "").trim()
+            });
+        }
+      });
+
+      const bidSlNosFound = new Set();
+
+      bidRows.forEach((row, rIdx) => {
+        const sl = normalizeSrNo(row[bidCfg.slNoCol]);
+        if (!sl) return; // FIX: Strict check
+
+        bidSlNosFound.add(sl);
+        const bidDesc = String(row[bidCfg.descCol] || "").trim();
+
+        // FIX: Ignore if the bidder row is accidentally a Header row (contains "Description")
+        if (/^(description|particulars|desc|items?)$/i.test(bidDesc)) return;
+
+        // A. Check: Extra Item
+        if (!estMap.has(sl)) {
+           if(bidDesc && bidDesc.length > 3) { // Only flag if it has substantial text
+               validationErrors.push({
+                bidder: bidderName,
+                sheet: displaySheet,
+                type: "Extra Item",
+                location: sl,
+                details: `Item '${sl}' found in Bidder, but not in Estimate.`
+              });
+           }
+           return;
+        }
+
+        // B. Check: Data Mismatch (Description)
+        const estItem = estMap.get(sl);
+        
+        if (estItem.desc && bidDesc) {
+            // FIX: Increase match length to 50 chars to handle long notes properly
+            const cleanEst = normStr(estItem.desc).substring(0, 50);
+            const cleanBid = normStr(bidDesc).substring(0, 50);
+            
+            if (!cleanEst.includes(cleanBid) && !cleanBid.includes(cleanEst)) {
+                 validationErrors.push({
+                    bidder: bidderName,
+                    sheet: displaySheet,
+                    type: "Description Mismatch",
+                    location: sl,
+                    details: `Estimate: "${estItem.desc.substring(0,30)}..." \nBidder: "${bidDesc.substring(0,30)}..."`
+                  });
+            }
+        }
+      });
+
+      // C. Check: Missing Item
+      for (const [sl, info] of estMap) {
+        if (!bidSlNosFound.has(sl)) {
+          validationErrors.push({
+            bidder: bidderName,
+            sheet: displaySheet,
+            type: "Missing Item",
+            location: sl,
+            details: `Item '${sl}' (${info.desc.substring(0,20)}...) missing in Bidder file.`
+          });
+        }
+      }
+
+    });
+  });
+
+  return validationErrors.length === 0;
+}
+/* --- UI RENDERING FOR VALIDATION --- */
+
+/* --- UI RENDERING FOR VALIDATION --- */
+/* --- UI RENDERING FOR VALIDATION --- */
+function showValidationReport() {
+  const tbody = document.getElementById("validation-table-body");
+  tbody.innerHTML = "";
+
+  validationErrors.forEach(err => {
+    const tr = document.createElement("tr");
+    
+    // Define Color Classes
+    let typeClass = "text-yellow-400"; // Default warning
+    
+    // 🔴 RED for Critical breaking errors and Missing items
+    if (err.type.includes("CRITICAL") || err.type.includes("Missing") || err.type.includes("Mismatch")) {
+        typeClass = "text-red-400 font-bold uppercase";
+    }
+    // 🔵 BLUE for Extra items (Information only)
+    if (err.type.includes("Extra")) {
+        typeClass = "text-blue-300";
+    }
+
+    tr.className = "hover:bg-slate-800/50 transition-colors border-b border-slate-800";
+    tr.innerHTML = `
+      <td class="p-3 font-medium text-slate-200 break-words">${err.bidder}</td>
+      <td class="p-3 text-slate-400 break-words">${err.sheet}</td>
+      <td class="p-3 ${typeClass} break-words">${err.type}</td>
+      <td class="p-3 font-mono text-slate-300 break-all">${err.location}</td>
+      <td class="p-3 text-slate-400 text-xs whitespace-pre-wrap break-words">${err.details}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  // Update table header with explicitly wider Issue Type column
+  const thead = document.querySelector("#validation-modal thead tr");
+  if (thead) {
+    thead.innerHTML = `
+      <th class="p-3 text-xs font-bold uppercase tracking-wider border-b border-slate-700 w-1/12">Bidder</th>
+      <th class="p-3 text-xs font-bold uppercase tracking-wider border-b border-slate-700 w-2/12">Sheet</th>
+      <th class="p-3 text-xs font-bold uppercase tracking-wider border-b border-slate-700 w-3/12">Issue Type</th> <th class="p-3 text-xs font-bold uppercase tracking-wider border-b border-slate-700 w-2/12">Location</th>
+      <th class="p-3 text-xs font-bold uppercase tracking-wider border-b border-slate-700 w-4/12">Details</th> `;
+  }
+
+  document.getElementById("validation-modal").classList.remove("hidden");
+  document.getElementById("loader").classList.add("hidden");
+  document.getElementById("btn-force-proceed").classList.remove("hidden");
+}
+
+
+function closeValidationModal() {
+  document.getElementById("validation-modal").classList.add("hidden");
+}
+
+function forceProceedComparison() {
+  closeValidationModal();
+  // We need to re-trigger the consolidation step from where we paused
+  finishProcessing(); 
+}
+
+
 
     /* --- ERROR MODAL FUNCTIONS --- */
 function showErrorModal(message, tip) {
@@ -884,11 +1068,15 @@ function parseNumber(v) {
 }
 
 /* ===================== Main processing ===================== */
+/* ===================== Main processing ===================== */
+// We store temp data here to allow "Force Proceed"
+let tempEstimateData = null;
+let tempBiddersData = null;
+
 async function handleProcessFiles() {
   const estimateFile = estimateFileInput.files[0];
   const bidderFiles = bidderFilesInput.files;
 
-  // 1. Basic Input Validation (using Error Modal for consistency)
   if (!estimateFile || bidderFiles.length === 0) {
     showErrorModal("Missing Files", "Please select an estimate file and at least one bidder file.");
     return;
@@ -901,7 +1089,6 @@ async function handleProcessFiles() {
   loader.classList.remove("hidden");
   outputSection.classList.add("hidden");
 
-  // 🔴 START ERROR CATCHING
   try {
     processingContext = "Preparing Bidder Names";
     bidderNames = Array.from(bidderFiles).map((f) =>
@@ -914,52 +1101,74 @@ async function handleProcessFiles() {
 
     // 3. Parse Bidders
     processingContext = "Parsing Bidder Files";
-    const biddersData = await Promise.all(Array.from(bidderFiles).map((file, i) => {
-      // Update context for specific file if it fails here
+    const biddersData = await Promise.all(Array.from(bidderFiles).map((file) => {
       processingContext = `Parsing Bidder File: ${file.name}`;
       return parseExcelFile(file, false);
     }));
 
-    // 4. 🟢 VALIDATION STEP (Checks for sheet name mismatches)
-    processingContext = "Validating Sheet Names across files";
-    validateSheets(estimateData, biddersData); 
+    // --- 4. NEW: DETAILED VALIDATION ---
+    processingContext = "Auditing Files for Mismatches";
+    const isValid = performDetailedValidation(estimateData, biddersData);
 
-    // 5. Consolidate
-    processingContext = "Consolidating Data & Calculating Totals";
-    processedSheetNames = [
-      "Summary",
-      ...estimateSheetKeysOrdered.filter((key) => !!estimateData[key])
-    ];
+    // Store data globally in case we force proceed
+    tempEstimateData = estimateData;
+    tempBiddersData = biddersData;
 
-    consolidateAllData(estimateData, biddersData);
+    if (!isValid) {
+      // If errors found, show report and PAUSE execution
+      showValidationReport();
+      return; 
+    }
 
-    // 6. Update UI
-    processingContext = "Rendering User Interface";
-    const { lower, upper } = getVarianceThresholds();
-    document.getElementById("lower-variance-label").textContent = `Low < ${lower}`;
-    document.getElementById("upper-variance-label").textContent = `High > ${upper}`;
-
-    renderUI();
-    
-    outputSection.classList.remove("hidden");
-    downloadButton.classList.remove("hidden");
-    document.getElementById("reload-page").classList.remove("hidden");
-    processButton.classList.add("hidden"); 
+    // If valid, proceed immediately
+    finishProcessing();
 
   } catch (e) {
     console.error("App Error:", e);
-    
-    // Determine the error message
     const msg = e.message || "Unknown Error";
-    
-    // Determine the tip: Use custom tip if available, otherwise show where it happened
     const tip = e.tip || `Error occurred during: ${processingContext}.\nCheck the browser console (F12) for technical details.`;
-    
     showErrorModal(msg, tip);
-  } finally {
     loader.classList.add("hidden");
-    processingContext = "Idle";
-  }
+  } 
+}
+
+// Separate function to finish the job (called automatically or via "Proceed Anyway")
+function finishProcessing() {
+    try {
+        loader.classList.remove("hidden"); // Ensure loader is back on if we came from modal
+
+        // 5. Consolidate
+        processingContext = "Consolidating Data & Calculating Totals";
+        
+        // Use the global temp data
+        const estimateData = tempEstimateData;
+        const biddersData = tempBiddersData;
+
+        processedSheetNames = [
+          "Summary",
+          ...estimateSheetKeysOrdered.filter((key) => !!estimateData[key])
+        ];
+
+        consolidateAllData(estimateData, biddersData);
+
+        // 6. Update UI
+        processingContext = "Rendering User Interface";
+        const { lower, upper } = getVarianceThresholds();
+        document.getElementById("lower-variance-label").textContent = `Low < ${lower}`;
+        document.getElementById("upper-variance-label").textContent = `High > ${upper}`;
+
+        renderUI();
+        
+        outputSection.classList.remove("hidden");
+        downloadButton.classList.remove("hidden");
+        document.getElementById("reload-page").classList.remove("hidden");
+        processButton.classList.add("hidden"); 
+    } catch(e) {
+        showErrorModal("Processing Failed", e.message);
+    } finally {
+        loader.classList.add("hidden");
+        processingContext = "Idle";
+    }
 }
 
 
@@ -1033,18 +1242,31 @@ function parseExcelFile(file, isEstimate) {
 
 
 
-
 function normalizeSrNo(value) {
   const s = String(value ?? "").trim();
   if (!s) return "";
+  
+  // FIX: If the cell contains only text (like "NO." or "Sr.No"), return empty to skip it
+  if (/^[^0-9]+$/.test(s)) return ""; 
+
   const cleaned = s.replace(/[^\d.]/g, "");
   if (!cleaned) return "";
+  
   if (!cleaned.includes(".")) return cleaned.replace(/^0+/, "") || "0";
+  
   const [intPart, decPartRaw] = cleaned.split(".");
   const dec = (decPartRaw || "").replace(/[^0-9]/g, "");
-  if (dec && /^0+$/.test(dec)) return (intPart.replace(/^0+/, "") || "0");
-  return `${intPart.replace(/^0+/, "") || "0"}.${dec}`;
+  
+  const finalVal = (dec && /^0+$/.test(dec)) 
+    ? (intPart.replace(/^0+/, "") || "0")
+    : `${intPart.replace(/^0+/, "") || "0"}.${dec}`;
+
+  // FIX: Explicitly ignore "0", "0.", or empty results to prevent comparing Header/Note rows
+  if (finalVal === "0" || finalVal === "0." || finalVal === ".") return "";
+
+  return finalVal;
 }
+
 
 /* ---------- Build consolidated structure ---------- */
 
@@ -3123,6 +3345,54 @@ document.getElementById("reload-page").addEventListener("click", () => {
 
       <div class="px-6 py-4 border-t border-slate-700 flex justify-end">
         <button onclick="closeErrorModal()" class="bg-slate-700 hover:bg-slate-600 text-white px-5 py-2 rounded-lg">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<div id="validation-modal" class="fixed inset-0 z-[120] hidden">
+  <div class="absolute inset-0 bg-black/90 backdrop-blur-sm"></div>
+  <div class="absolute inset-0 flex items-center justify-center p-4">
+    <div class="w-full max-w-5xl h-[80vh] flex flex-col rounded-2xl bg-slate-900 text-gray-100 shadow-2xl border border-orange-500/50">
+      
+      <div class="flex items-center justify-between px-6 py-4 border-b border-slate-700 bg-slate-800">
+        <h3 class="text-xl font-bold text-orange-400 flex items-center gap-2">
+          <span>⚠️</span> Data Mismatches Found
+        </h3>
+        <button class="text-gray-400 hover:text-white text-2xl" onclick="closeValidationModal()">&times;</button>
+      </div>
+
+      <div class="p-6 bg-slate-900/50 flex-none">
+        <p class="text-gray-300 text-sm">
+          The following discrepancies were found between the Estimate and Bidder files. 
+          Please review and fix these issues in the Excel files to ensure an accurate comparison.
+        </p>
+      </div>
+
+      <div class="flex-1 overflow-auto px-6 pb-6">
+        <table class="w-full text-left border-collapse">
+          <thead class="bg-slate-950 text-gray-400 sticky top-0 shadow-lg">
+            <tr>
+              <th class="p-3 text-xs font-bold uppercase tracking-wider border-b border-slate-700">Bidder Name</th>
+              <th class="p-3 text-xs font-bold uppercase tracking-wider border-b border-slate-700">Sheet</th>
+              <th class="p-3 text-xs font-bold uppercase tracking-wider border-b border-slate-700">Issue Type</th>
+              <th class="p-3 text-xs font-bold uppercase tracking-wider border-b border-slate-700">Location (Sl.No)</th>
+              <th class="p-3 text-xs font-bold uppercase tracking-wider border-b border-slate-700 w-1/2">Details</th>
+            </tr>
+          </thead>
+          <tbody id="validation-table-body" class="text-sm divide-y divide-slate-800">
+            </tbody>
+        </table>
+      </div>
+
+      <div class="px-6 py-4 border-t border-slate-700 flex justify-end gap-3 bg-slate-800 rounded-b-2xl">
+        <button onclick="closeValidationModal()" class="bg-slate-700 hover:bg-slate-600 text-white px-5 py-2 rounded-lg font-medium transition">
+          Go Back & Fix
+        </button>
+        <button id="btn-force-proceed" onclick="forceProceedComparison()" class="bg-orange-600 hover:bg-orange-500 text-white px-5 py-2 rounded-lg font-medium transition hidden">
+          Ignore & Proceed Anyway
+        </button>
       </div>
     </div>
   </div>
