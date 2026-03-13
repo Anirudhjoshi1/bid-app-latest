@@ -2862,6 +2862,7 @@
                 const rankLabel = (row.bidderAmounts || [])[i] || "";
                 return `<td class="amount-cell" style="text-align:center; font-weight:bold;">${rankLabel}</td>`;
             }).join("")}
+            <td class="least-amount-cell"></td>
           `;
           tbody.appendChild(tr);
           return;
@@ -2872,6 +2873,7 @@
         else if (row.kind === "grand") tr.className = "grand-total-row";
 
         const est = row.estimateAmount || 0;
+        const least = row.leastAmount || 0;
 
         tr.innerHTML = `
       <td class="sticky-col-1 col-slno">${row.slNo || ""}</td>
@@ -2883,6 +2885,7 @@
               return `<td class="amount-cell"><span class="${zeroCls(v)}">${formatCurrency(v)}</span></td>`;
             })
             .join("")}
+      <td class="least-amount-cell"><span class="${zeroCls(least)}">${formatCurrency(least)}</span></td>
     `;
         tbody.appendChild(tr);
       });
